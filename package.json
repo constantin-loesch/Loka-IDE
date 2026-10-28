@@ -1,0 +1,55 @@
+{
+  "name": "lokal-ide",
+  "productName": "Lokal IDE",
+  "version": "0.1.0",
+  "description": "IDE mit eingebauter lokaler KI (llama.cpp)",
+  "main": "out/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "app": "electron-vite build && electron-builder --mac dir --arm64 && xattr -cr \"dist/mac-arm64/Lokal IDE.app\" && codesign --force --deep --sign - \"dist/mac-arm64/Lokal IDE.app\""
+  },
+  "dependencies": {
+    "node-llama-cpp": "^3.22.2"
+  },
+  "devDependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "monaco-editor": "^0.55.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7"
+  },
+  "build": {
+    "appId": "de.lokalide.app",
+    "productName": "Lokal IDE",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-llama-cpp/**",
+      "node_modules/@node-llama-cpp/**"
+    ],
+    "mac": {
+      "icon": "build/icon.png",
+      "identity": null,
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true
+    }
+  }
+}

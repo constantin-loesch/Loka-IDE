@@ -1,0 +1,126 @@
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { cpus, platform, totalmem } from 'node:os'
+import { join } from 'node:path'
+import type { ChatRequest, DirEntry, SystemInfo } from '../shared/types'
+import * as llm from './llm'
+import * as models from './models'
+
+let win: BrowserWindow | null = null
+
+function createWindow(): void {
+  win = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'Lokal IDE',
+    backgroundColor: '#1e1f22',
+    titleBarStyle: 'hiddenInset',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      sandbox: true
+    }
+  })
+
+  // Externe Links im Standard-Browser öffnen statt in der App
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  if (process.env['ELECTRON_RENDERER_URL']) win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  else win.loadFile(join(__dirname, '../renderer/index.html'))
+}
+
+const send = (channel: string, payload: unknown): void => {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+// ---------- System ----------
+ipcMain.handle('system:info', (): SystemInfo => ({
+  totalMemBytes: totalmem(),
+  cpu: cpus()[0]?.model ?? 'unbekannt',
+  platform: platform(),
+  modelsDir: models.modelsDir()
+}))
+ipcMain.handle('system:revealModels', () => shell.openPath(models.modelsDir()))
+
+// ---------- Dateisystem ----------
+const HIDDEN = new Set(['.git', 'node_modules', '.DS_Store', 'out', 'dist', '.next', '__pycache__'])
+
+ipcMain.handle('fs:openFolder', async () => {
+  const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+  return r.canceled ? null : r.filePaths[0]
+})
+
+ipcMain.handle('fs:readDir', async (_e, dir: string): Promise<DirEntry[]> => {
+  const entries = await readdir(dir, { withFileTypes: true })
+  return entries
+    .filter((e) => !HIDDEN.has(e.name))
+    .map((e) => ({ name: e.name, path: join(dir, e.name), isDir: e.isDirectory() }))
+    .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
+})
+
+ipcMain.handle('fs:readFile', (_e, path: string) => readFile(path, 'utf8'))
+ipcMain.handle('fs:writeFile', (_e, path: string, content: string) => writeFile(path, content, 'utf8'))
+
+// ---------- Modelle ----------
+ipcMain.handle('models:catalog', () => models.getCatalog())
+ipcMain.handle('models:installed', () => models.listInstalled())
+ipcMain.handle('models:download', (_e, id: string) => {
+  // Nicht awaiten: Fortschritt kommt über Events
+  void models.downloadModel(id, (p) => send('models:progress', p))
+})
+ipcMain.handle('models:cancelDownload', (_e, id: string) => models.cancelDownload(id))
+ipcMain.handle('models:remove', async (_e, path: string) => {
+  if (llm.getStatus().state === 'ready' && (llm.getStatus() as { modelPath: string }).modelPath === path) {
+    await llm.unloadModel()
+  }
+  await models.removeModel(path)
+})
+ipcMain.handle('models:import', async () => {
+  const r = await dialog.showOpenDialog({
+    title: 'GGUF-Modell auswählen',
+    properties: ['openFile'],
+    filters: [{ name: 'GGUF-Modelle', extensions: ['gguf'] }]
+  })
+  if (r.canceled || !r.filePaths[0]) return false
+  await models.importModel(r.filePaths[0])
+  return true
+})
+
+// ---------- Engine ----------
+ipcMain.handle('engine:status', () => llm.getStatus())
+ipcMain.handle('engine:load', (_e, path: string) => {
+  void llm.loadModel(path)
+})
+ipcMain.handle('engine:unload', () => llm.unloadModel())
+ipcMain.handle('chat:send', async (_e, req: ChatRequest) => {
+  try {
+    await llm.chat(req, (chunk) => send('chat:chunk', chunk))
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+ipcMain.handle('chat:stop', () => llm.stopChat())
+ipcMain.handle('chat:reset', () => llm.resetChat())
+
+llm.onStatus((s) => send('engine:status', s))
+
+app.whenReady().then(() => {
+  createWindow()
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  void llm.unloadModel()
+})
