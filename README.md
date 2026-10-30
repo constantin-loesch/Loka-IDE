@@ -35,8 +35,4 @@ Modelle liegen unter `~/Library/Application Support/Lokal IDE/models`.
 npm run app
 ```
 
-Erzeugt `dist/mac-arm64/Lokal IDE.app` mit Icon (`build/icon.svg` → `build/icon.png`). Danach in `/Applications` kopieren:
-
-```bash
-ditto "dist/mac-arm64/Lokal IDE.app" "/Applications/Lokal IDE.app"
-```
+Baut die App mit Icon (`build/icon.svg` → `build/icon.png`), installiert sie nach `~/Applications/Lokal IDE.app` und signiert sie dort. Signiert wird bewusst außerhalb des Projektordners: Liegt das Projekt auf einem iCloud-synchronisierten Schreibtisch, hängt macOS sofort wieder Datei-Attribute an und `codesign` bricht ab.

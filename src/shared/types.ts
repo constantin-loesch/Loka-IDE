@@ -66,3 +66,45 @@ export interface DirEntry {
   path: string
   isDir: boolean
 }
+
+/** Zeichenkodierung einer Textdatei – wird beim Speichern beibehalten. */
+export type TextEncoding = 'utf8' | 'utf8bom' | 'utf16le' | 'latin1'
+
+export type MediaKind = 'image' | 'pdf' | 'audio' | 'video'
+
+/** Ergebnis von fs:openFile – je nach Dateityp Text, Vorschau oder Hinweis. */
+export type OpenedFile =
+  | { kind: 'text'; content: string; encoding: TextEncoding }
+  | { kind: 'media'; media: MediaKind; url: string; size: number }
+  | { kind: 'binary'; reason: 'binary' | 'too-large'; size: number }
+
+export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
+
+export interface GitFile {
+  /** Absoluter Pfad */
+  path: string
+  /** Pfad relativ zum Repository, zur Anzeige */
+  rel: string
+  status: GitFileStatus
+}
+
+export type GitStatus =
+  | { isRepo: false }
+  | {
+      isRepo: true
+      root: string
+      branch: string
+      hasCommits: boolean
+      upstream: string | null
+      ahead: number
+      behind: number
+      remoteUrl: string | null
+      files: GitFile[]
+      identity: { name: string; email: string } | null
+    }
+
+export interface GitHubAccount {
+  login: string
+  name: string | null
+  avatarUrl: string
+}

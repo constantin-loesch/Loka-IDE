@@ -1,19 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { editor as monacoEditor, Uri, type editor } from 'monaco-editor'
-import type { EngineStatus } from '../../shared/types'
+import { editor as monacoEditor, type editor } from 'monaco-editor'
+import type { EngineStatus, OpenedFile } from '../../shared/types'
+import { modelUri } from './fileLanguage'
 import FileTree from './components/FileTree'
 import EditorArea, { type Tab } from './components/EditorArea'
 import ChatPanel, { type EditorContext } from './components/ChatPanel'
 import ModelManager from './components/ModelManager'
+import GitPanel from './components/GitPanel'
 import { Icon } from './components/Icon'
 
 const MODELS_TAB = '__models__'
+
+function fileTab(path: string, f: OpenedFile): Tab {
+  const base = { id: path, path, title: path.split('/').pop() ?? path }
+  switch (f.kind) {
+    case 'text':
+      return { ...base, kind: 'file', content: f.content, encoding: f.encoding, dirty: false }
+    case 'media':
+      return { ...base, kind: 'media', media: f.media, url: f.url, size: f.size }
+    case 'binary':
+      return { ...base, kind: 'binary', reason: f.reason, size: f.size }
+  }
+}
 
 export default function App(): React.JSX.Element {
   const [root, setRoot] = useState<string | null>(null)
   const [tabs, setTabs] = useState<Tab[]>([{ id: MODELS_TAB, title: 'Modelle', kind: 'models' }])
   const [activeId, setActiveId] = useState<string>(MODELS_TAB)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebar, setSidebar] = useState<'explorer' | 'git' | null>('explorer')
   const [chatOpen, setChatOpen] = useState(true)
   const [status, setStatus] = useState<EngineStatus>({ state: 'idle' })
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -27,16 +41,16 @@ export default function App(): React.JSX.Element {
     const dir = await window.api.fs.openFolder()
     if (dir) {
       setRoot(dir)
-      setSidebarOpen(true)
+      setSidebar((v) => v ?? 'explorer')
     }
   }
 
   const openFile = async (path: string): Promise<void> => {
     if (!tabs.some((t) => t.id === path)) {
       try {
-        const content = await window.api.fs.readFile(path)
-        const title = path.split('/').pop() ?? path
-        setTabs((prev) => [...prev, { id: path, title, kind: 'file', path, content, dirty: false }])
+        const opened = await window.api.fs.openFile(path)
+        // Doppelklick kann zweimal öffnen – nur einen Tab anlegen
+        setTabs((prev) => (prev.some((t) => t.id === path) ? prev : [...prev, fileTab(path, opened)]))
       } catch (err) {
         alert(`Datei konnte nicht geöffnet werden:\n${err}`)
         return
@@ -58,12 +72,31 @@ export default function App(): React.JSX.Element {
       return
     }
     // Monaco-Modell freigeben, sonst tauchen verworfene Änderungen beim erneuten Öffnen wieder auf
-    if (tab?.kind === 'file') monacoEditor.getModel(Uri.parse(tab.path))?.dispose()
+    if (tab?.kind === 'file') monacoEditor.getModel(modelUri(tab.path))?.dispose()
     const idx = tabs.findIndex((t) => t.id === id)
     const next = tabs.filter((t) => t.id !== id)
     setTabs(next)
     if (activeId === id) setActiveId(next[Math.max(0, idx - 1)]?.id ?? '')
   }
+
+  /** Öffnet eine Binär- oder Mediendatei im selben Tab als Text. */
+  const openAsText = async (id: string): Promise<void> => {
+    const tab = tabs.find((t) => t.id === id)
+    if (!tab || !('path' in tab)) return
+    try {
+      const opened = await window.api.fs.openFile(tab.path, true)
+      setTabs((prev) => prev.map((t) => (t.id === id ? fileTab(tab.path, opened) : t)))
+    } catch (err) {
+      alert(`Datei konnte nicht geöffnet werden:\n${err}`)
+    }
+  }
+
+  // Cmd+W aus dem App-Menü schließt den aktiven Tab
+  const closeActiveRef = useRef<() => void>(() => {})
+  closeActiveRef.current = () => {
+    if (tabs.some((t) => t.id === activeId)) closeTab(activeId)
+  }
+  useEffect(() => window.api.menu.onCloseTab(() => closeActiveRef.current()), [])
 
   const updateTab = useCallback((id: string, patch: Partial<Tab>) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Tab) : t)))
@@ -108,11 +141,18 @@ export default function App(): React.JSX.Element {
       <div className="workbench">
         <nav className="activitybar">
           <button
-            className={sidebarOpen ? 'active' : ''}
+            className={sidebar === 'explorer' ? 'active' : ''}
             title="Explorer"
-            onClick={() => setSidebarOpen((v) => !v)}
+            onClick={() => setSidebar((v) => (v === 'explorer' ? null : 'explorer'))}
           >
             <Icon name="files" />
+          </button>
+          <button
+            className={sidebar === 'git' ? 'active' : ''}
+            title="Quellcodeverwaltung (Git)"
+            onClick={() => setSidebar((v) => (v === 'git' ? null : 'git'))}
+          >
+            <Icon name="git" />
           </button>
           <button className={activeTab?.kind === 'models' ? 'active' : ''} title="Modelle" onClick={openModels}>
             <Icon name="chip" />
@@ -122,7 +162,16 @@ export default function App(): React.JSX.Element {
           </button>
         </nav>
 
-        {sidebarOpen && (
+        {sidebar === 'git' && (
+          <aside className="sidebar">
+            <div className="panel-header">
+              <span>Quellcode</span>
+            </div>
+            <GitPanel root={root} onOpenFolder={openFolder} onOpenFile={openFile} />
+          </aside>
+        )}
+
+        {sidebar === 'explorer' && (
           <aside className="sidebar">
             <div className="panel-header">
               <span>Explorer</span>
@@ -131,7 +180,7 @@ export default function App(): React.JSX.Element {
               </button>
             </div>
             {root ? (
-              <FileTree root={root} activePath={activeTab?.kind === 'file' ? activeTab.path : undefined} onOpen={openFile} />
+              <FileTree root={root} activePath={activeTab && 'path' in activeTab ? activeTab.path : undefined} onOpen={openFile} />
             ) : (
               <div className="empty-hint">
                 <p>Kein Ordner geöffnet.</p>
@@ -150,6 +199,7 @@ export default function App(): React.JSX.Element {
             onSelect={setActiveId}
             onClose={closeTab}
             onUpdate={updateTab}
+            onOpenAsText={openAsText}
             editorRef={editorRef}
             renderModels={() => <ModelManager status={status} />}
           />

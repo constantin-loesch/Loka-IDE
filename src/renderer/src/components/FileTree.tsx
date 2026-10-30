@@ -11,7 +11,8 @@ interface Props {
 export default function FileTree({ root, activePath, onOpen }: Props): React.JSX.Element {
   return (
     <div className="filetree">
-      <Folder path={root} depth={0} activePath={activePath} onOpen={onOpen} initiallyOpen />
+      {/* key: beim Wechsel des Ordners den Baum neu laden */}
+      <Folder key={root} path={root} depth={0} activePath={activePath} onOpen={onOpen} initiallyOpen />
     </div>
   )
 }

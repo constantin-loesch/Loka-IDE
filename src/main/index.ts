@@ -1,10 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { readdir } from 'node:fs/promises'
 import { cpus, platform, totalmem } from 'node:os'
 import { join } from 'node:path'
-import type { ChatRequest, DirEntry, SystemInfo } from '../shared/types'
+import type { ChatRequest, DirEntry, SystemInfo, TextEncoding } from '../shared/types'
+import * as files from './files'
+import * as git from './git'
 import * as llm from './llm'
 import * as models from './models'
+
+files.registerScheme()
 
 let win: BrowserWindow | null = null
 
@@ -20,7 +24,9 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      // Für den eingebauten PDF-Viewer
+      plugins: true
     }
   })
 
@@ -63,8 +69,31 @@ ipcMain.handle('fs:readDir', async (_e, dir: string): Promise<DirEntry[]> => {
     .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
 })
 
-ipcMain.handle('fs:readFile', (_e, path: string) => readFile(path, 'utf8'))
-ipcMain.handle('fs:writeFile', (_e, path: string, content: string) => writeFile(path, content, 'utf8'))
+ipcMain.handle('fs:openFile', (_e, path: string, forceText?: boolean) => files.openFile(path, forceText))
+ipcMain.handle('fs:writeFile', (_e, path: string, content: string, encoding?: TextEncoding) =>
+  files.saveFile(path, content, encoding)
+)
+ipcMain.handle('fs:openExternal', async (_e, path: string) => {
+  const err = await shell.openPath(path)
+  if (err) throw new Error(err)
+})
+
+// ---------- Git / GitHub ----------
+ipcMain.handle('git:status', (_e, dir: string) => git.status(dir))
+ipcMain.handle('git:init', (_e, dir: string) => git.init(dir))
+ipcMain.handle('git:commit', (_e, dir: string, message: string, paths: string[]) => git.commit(dir, message, paths))
+ipcMain.handle('git:push', (_e, dir: string) => git.push(dir))
+ipcMain.handle('git:pull', (_e, dir: string) => git.pull(dir))
+ipcMain.handle('git:setRemote', (_e, dir: string, url: string) => git.setRemote(dir, url))
+ipcMain.handle('git:setIdentity', (_e, dir: string, name: string, email: string) => git.setIdentity(dir, name, email))
+ipcMain.handle('github:account', () => git.account())
+ipcMain.handle('github:connect', (_e, token: string) => git.connect(token))
+ipcMain.handle('github:disconnect', () => git.disconnect())
+ipcMain.handle('github:publish', (_e, dir: string, name: string, isPrivate: boolean) => git.publish(dir, name, isPrivate))
+ipcMain.handle('shell:openUrl', (_e, url: string) => {
+  // Nur Web-Links öffnen
+  if (/^https:\/\//.test(url)) return shell.openExternal(url)
+})
 
 // ---------- Modelle ----------
 ipcMain.handle('models:catalog', () => models.getCatalog())
@@ -110,7 +139,32 @@ ipcMain.handle('chat:reset', () => llm.resetChat())
 
 llm.onStatus((s) => send('engine:status', s))
 
+// ---------- Menü ----------
+// Eigenes Menü, damit Cmd+W den aktiven Tab schließt statt des ganzen Fensters
+function buildMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: 'appMenu' },
+    {
+      label: 'Datei',
+      submenu: [
+        { label: 'Tab schließen', accelerator: 'CmdOrCtrl+W', click: () => send('menu:closeTab', null) },
+        { label: 'Fenster schließen', accelerator: 'CmdOrCtrl+Shift+W', role: 'close' }
+      ]
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    {
+      label: 'Fenster',
+      role: 'window',
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
+    }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 app.whenReady().then(() => {
+  files.handleScheme()
+  buildMenu()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

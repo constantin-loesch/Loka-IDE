@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "app": "electron-vite build && electron-builder --mac dir --arm64 && xattr -cr \"dist/mac-arm64/Lokal IDE.app\" && codesign --force --deep --sign - \"dist/mac-arm64/Lokal IDE.app\""
+    "app": "sh scripts/package-mac.sh"
   },
   "dependencies": {
     "node-llama-cpp": "^3.22.2"
