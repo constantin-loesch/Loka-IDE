@@ -184,6 +184,24 @@ function buildMenu(): void {
       label: 'Fenster',
       role: 'window',
       submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
+    },
+    {
+      label: 'Hilfe',
+      role: 'help',
+      submenu: [
+        {
+          label: 'Open-Source-Lizenzen',
+          click: () => {
+            // Im fertigen App-Bundle liegt die Datei in Resources, beim Entwickeln im Projektordner
+            const file = app.isPackaged
+              ? join(process.resourcesPath, 'THIRD_PARTY_LICENSES.txt')
+              : join(app.getAppPath(), 'THIRD_PARTY_LICENSES.txt')
+            void shell.openPath(file)
+          }
+        },
+        { label: 'Quellcode von llama.cpp', click: () => void shell.openExternal('https://github.com/ggml-org/llama.cpp') },
+        { label: 'Quellcode von node-llama-cpp', click: () => void shell.openExternal('https://github.com/withcatai/node-llama-cpp') }
+      ]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))

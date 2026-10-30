@@ -207,10 +207,57 @@ export async function planEdit(root: string, path: string, oldText: string, newT
   if (!oldText) throw new Error('old_text ist leer. Gib den genauen Text an, der ersetzt werden soll.')
   const before = await readFile(t.abs, 'utf8')
   const count = before.split(oldText).length - 1
-  if (count === 0) throw new Error(`old_text kommt in ${path} nicht vor. Lies die Datei mit read_file und kopiere den Text exakt (ohne Zeilennummern).`)
   if (count > 1) throw new Error(`old_text kommt ${count}-mal in ${path} vor. Nimm mehr umgebende Zeilen dazu, damit die Stelle eindeutig ist.`)
-  const after = before.replace(oldText, () => newText)
-  return { abs: t.abs, rel: t.rel, before, after, isNew: false, snippetBefore: oldText, snippetAfter: newText }
+  if (count === 1) {
+    const after = before.replace(oldText, () => newText)
+    return { abs: t.abs, rel: t.rel, before, after, isNew: false, snippetBefore: oldText, snippetAfter: newText }
+  }
+
+  // Kleine Modelle geben den alten Text selten exakt wieder (andere Einrückung, Zeilen zusammengezogen,
+  // Semikolons). Deshalb ohne Leerraum und Semikolons vergleichen – aber nur bei eindeutigem Treffer.
+  const range = looseFind(before, oldText)
+  if (range === 'mehrfach') throw new Error(`old_text passt an mehreren Stellen in ${path}. Nimm mehr umgebende Zeilen dazu.`)
+  if (!range) {
+    throw new Error(
+      `old_text kommt in ${path} nicht vor. Kopiere den Text exakt aus dem aktuellen Inhalt unten (ohne Zeilennummern) ` +
+        `oder schreib die Datei mit write_file komplett neu.\n\nAktueller Inhalt von ${t.rel}:\n${numbered(before)}`
+    )
+  }
+  const [start, end] = range
+  const after = before.slice(0, start) + newText + before.slice(end)
+  return { abs: t.abs, rel: t.rel, before, after, isNew: false, snippetBefore: before.slice(start, end), snippetAfter: newText }
+}
+
+const IGNORED = /[\s;]/
+
+/** Sucht `needle` in `text` und ignoriert dabei Leerraum und Semikolons. Liefert die Stelle im Original. */
+function looseFind(text: string, needle: string): [number, number] | 'mehrfach' | null {
+  const map: number[] = []
+  let norm = ''
+  for (let i = 0; i < text.length; i++) {
+    if (IGNORED.test(text[i])) continue
+    norm += text[i]
+    map.push(i)
+  }
+  const n = needle.split('').filter((c) => !IGNORED.test(c)).join('')
+  if (n.length < 3) return null
+  const first = norm.indexOf(n)
+  if (first < 0) return null
+  if (norm.indexOf(n, first + 1) >= 0) return 'mehrfach'
+  let start = map[first]
+  let end = map[first + n.length - 1] + 1
+  // Ganze Zeilen ersetzen, wenn der Treffer am Zeilenanfang beginnt, damit die Einrückung stimmt
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1
+  if (/^[ \t]*$/.test(text.slice(lineStart, start))) start = lineStart
+  // Ein direkt folgendes Semikolon gehört noch dazu
+  if (text[end] === ';') end++
+  return [start, end]
+}
+
+function numbered(text: string, max = 120): string {
+  const lines = text.split('\n')
+  const shown = lines.slice(0, max).map((l, i) => `${String(i + 1).padStart(String(Math.min(lines.length, max)).length)}| ${l}`)
+  return shown.join('\n') + (lines.length > max ? `\n… (${lines.length - max} weitere Zeilen)` : '')
 }
 
 export async function applyWrite(plan: PlannedWrite): Promise<void> {

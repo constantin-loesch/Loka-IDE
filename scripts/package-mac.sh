@@ -7,6 +7,7 @@ set -e
 SRC="dist/mac-arm64/Lokal IDE.app"
 DEST="$HOME/Applications/Lokal IDE.app"
 
+node scripts/licenses.mjs
 electron-vite build
 electron-builder --mac dir --arm64
 

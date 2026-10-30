@@ -19,22 +19,6 @@ interface Part {
   output?: string
 }
 
-const MODES: { value: ChatMode; label: string; title: string }[] = [
-  { value: 'chat', label: 'Nur Chat', title: 'Das Modell sieht nur, was du schickst' },
-  { value: 'read', label: 'Codebase lesen', title: 'Das Modell darf im Projekt suchen und Dateien lesen' },
-  { value: 'agent', label: 'Coding-Agent', title: 'Darf zusätzlich Dateien ändern und Terminal-Befehle ausführen – jeweils nach deiner Freigabe' }
-]
-
-function loadMode(): ChatMode {
-  try {
-    const m = localStorage.getItem('chatMode')
-    if (m === 'chat' || m === 'read' || m === 'agent') return m
-  } catch {
-    // Speicher nicht verfügbar
-  }
-  return 'read'
-}
-
 interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -64,7 +48,6 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [includeFile, setIncludeFile] = useState(true)
-  const [mode, setModeState] = useState<ChatMode>(loadMode)
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const [installed, setInstalled] = useState<InstalledModel[]>([])
@@ -72,16 +55,9 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
   const activeRequest = useRef<string | null>(null)
 
   const ready = status.state === 'ready'
-  const effectiveMode: ChatMode = root ? mode : 'chat'
-
-  const setMode = (m: ChatMode): void => {
-    setModeState(m)
-    try {
-      localStorage.setItem('chatMode', m)
-    } catch {
-      // egal
-    }
-  }
+  // Kein Umschalten nötig: Mit offenem Ordner darf das Modell selbst entscheiden, ob es nur antwortet,
+  // im Projekt nachliest oder etwas ändert. Änderungen und Befehle brauchen weiterhin eine Freigabe.
+  const effectiveMode: ChatMode = root ? 'agent' : 'chat'
 
   const answer = (a: ApprovalAnswer): void => {
     setApprovals((prev) => prev.filter((r) => r.id !== a.id))
@@ -249,10 +225,8 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
             {ready ? (
               <p>
                 {effectiveMode === 'agent'
-                  ? 'Gib dem Agent eine Aufgabe. Er liest Code, ändert Dateien und führt Befehle aus – jede Änderung und jeden Befehl gibst du vorher frei.'
-                  : effectiveMode === 'read'
-                    ? 'Frag etwas zu deinem Projekt. Das Modell sucht und liest die passenden Dateien selbst.'
-                    : 'Frag etwas zu deinem Code. Die geöffnete Datei oder deine Auswahl wird automatisch mitgeschickt.'}
+                  ? 'Frag etwas zu deinem Projekt oder gib eine Aufgabe. Das Modell sucht und liest selbst nach und ändert bei Bedarf Dateien oder führt Befehle aus – das gibst du jeweils vorher frei.'
+                  : 'Frag etwas zu deinem Code. Öffne einen Ordner, damit das Modell selbst im Projekt nachsehen und Aufgaben erledigen kann.'}
               </p>
             ) : (
               <>
@@ -307,19 +281,6 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
             <input type="checkbox" checked={includeFile} onChange={(e) => setIncludeFile(e.target.checked)} />
             Datei / Auswahl mitsenden
           </label>
-          <select
-            className="mode-select"
-            value={effectiveMode}
-            disabled={!root || busy}
-            title={root ? MODES.find((m) => m.value === effectiveMode)?.title : 'Öffne zuerst einen Ordner'}
-            onChange={(e) => setMode(e.target.value as ChatMode)}
-          >
-            {MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
         </div>
         <div className="input-row">
           <textarea

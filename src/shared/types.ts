@@ -1,22 +1,61 @@
 // Typen, die Main-Prozess, Preload und Oberfläche gemeinsam nutzen.
 
+/** Eine Datei eines Modells – große Modelle bestehen aus mehreren Teilen (…-00001-of-00006.gguf). */
+export interface ModelFile {
+  url: string
+  fileName: string
+  sizeBytes: number
+}
+
+/** Eine Quantisierung eines Modells, z. B. 4-Bit (Q4_K_M) oder das unquantisierte Original (BF16). */
+export interface ModelVariant {
+  id: string
+  quant: string
+  label: string
+  sizeBytes: number
+  files: ModelFile[]
+}
+
+export type SizeClass = 'klein' | 'mittel' | 'groß' | 'riesig'
+
 export interface CatalogModel {
   id: string
   name: string
   description: string
-  /** Parameter in Milliarden, nur zur Anzeige */
-  params: string
-  url: string
-  fileName: string
-  sizeBytes: number
+  /** Hugging-Face-Repository der GGUF-Dateien */
+  repo: string
+  sizeClass: SizeClass
+  /** Parameter insgesamt (Milliarden) */
+  totalParamsB: number
+  /** Pro Token gerechnete Parameter – bei MoE-Modellen viel kleiner, deshalb schneller */
+  activeParamsB: number
   tags: string[]
+  /** Lizenz des Modells – nicht jedes Modell darf kommerziell genutzt werden */
+  license: ModelLicense
+  recommendedVariant: string
+  variants: ModelVariant[]
+}
+
+export interface ModelLicense {
+  name: string
+  url: string
+  /** Kommerzielle Nutzung erlaubt? */
+  commercial: boolean
+  /** Wichtige Auflagen, kurz */
+  note?: string
 }
 
 export type Fit = 'gut' | 'knapp' | 'zu-gross'
 
-export interface CatalogEntry extends CatalogModel {
+export interface VariantEntry extends ModelVariant {
   fit: Fit
   installed: boolean
+  /** Grobe Schätzung für diesen Rechner, null wenn das Modell nicht in den Speicher passt */
+  tokensPerSec: number | null
+}
+
+export interface CatalogEntry extends Omit<CatalogModel, 'variants'> {
+  variants: VariantEntry[]
 }
 
 export interface InstalledModel {

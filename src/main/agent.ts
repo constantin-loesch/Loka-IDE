@@ -220,59 +220,258 @@ export function toolsFor(mode: ChatMode): Record<string, Tool> {
 }
 
 /** Führt Werkzeuge aus, zählt die Aufrufe und meldet sie der Oberfläche. */
+const rejectedByUser = (result: string): boolean => result.startsWith('Der Nutzer hat das abgelehnt')
+
+/** Hat ein Werkzeug-Aufruf nicht geklappt (Fehler oder vom Nutzer abgelehnt)? */
+export const failed = (result: string): boolean => result.startsWith('Fehler') || rejectedByUser(result)
+
 export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
   const limit = getSettings().maxToolCalls
   let calls = 0
+  /** Zählt Dateiänderungen – danach dürfen Lesen und Befehle sinnvoll wiederholt werden */
+  let version = 0
+  /** Tatsächlich geschriebene Dateien (relativ zum Projekt) */
+  const changed = new Set<string>()
+  /** Erfolgreiche Aufrufe, um sinnlose Wiederholungen zu erkennen */
+  const done = new Set<string>()
+  /** Fehlgeschlagene Aufrufe mit ihrer Fehlermeldung – identisch wiederholen bringt nichts */
+  const failedCalls = new Map<string, string>()
+  /** Was wirklich passiert ist – für eine ehrliche Zusammenfassung */
+  const log: string[] = []
+  let userRejected = false
+  /** Ist der zuletzt ausgeführte Befehl fehlgeschlagen? */
+  let lastCommandFailed = false
+  let commandsRun = 0
+
+  const withDefaults = (tool: Tool, raw: Params): Params => {
+    // Fehlende oder leere Parameter mit Standardwerten auffüllen
+    const p: Params = { ...tool.defaults }
+    for (const [k, v] of Object.entries(raw ?? {})) if (v !== null && v !== undefined && v !== '') p[k] = v
+    // Windows-Pfade (".\\a\\b.py") und "./" am Anfang vereinheitlichen
+    if (typeof p.path === 'string') p.path = p.path.replace(/\\/g, '/').replace(/^(\.\/)+(?=.)/, '') || '.'
+    return p
+  }
+  const signature = (name: string, p: Params): string =>
+    // Schreiben mit gleichem Inhalt ist immer sinnlos, Lesen/Befehle erst nach einer Änderung wieder
+    name === 'write_file' || name === 'edit_file' ? `${name}:${JSON.stringify(p)}` : `${name}:${version}:${JSON.stringify(p)}`
+
   return {
     get exhausted() {
       return calls >= limit
+    },
+    changed,
+    log,
+    /** Hat der Nutzer eine Aktion abgelehnt? Dann soll der Agent nicht eigenmächtig weitermachen. */
+    get userRejected() {
+      return userRejected
+    },
+    get lastCommandFailed() {
+      return lastCommandFailed
+    },
+    get commandsRun() {
+      return commandsRun
+    },
+    /** Wurde genau dieser Aufruf schon erfolgreich ausgeführt (ohne dass sich seitdem etwas geändert hat)? */
+    seen(name: string, raw: Params): boolean {
+      const tool = available[name]
+      return !!tool && done.has(signature(name, withDefaults(tool, raw)))
+    },
+    /** Fehlermeldung, falls genau dieser Aufruf schon einmal gescheitert ist */
+    failedBefore(name: string, raw: Params): string | undefined {
+      const tool = available[name]
+      return tool ? failedCalls.get(signature(name, withDefaults(tool, raw))) : undefined
     },
     async call(name: string, raw: Params): Promise<string> {
       const tool = available[name]
       if (!tool) return `Fehler: Unbekanntes Werkzeug „${name}“. Verfügbar: ${Object.keys(available).join(', ')}`
       if (++calls > limit) return `Werkzeug-Limit (${limit}) erreicht. Antworte jetzt mit dem, was du bereits weißt.`
-      // Fehlende oder leere Parameter mit Standardwerten auffüllen
-      const p: Params = { ...tool.defaults }
-      for (const [k, v] of Object.entries(raw ?? {})) if (v !== null && v !== undefined && v !== '') p[k] = v
+      const p = withDefaults(tool, raw)
       ctx.report(tool.label(p))
       try {
-        return await tool.run(ctx, p)
+        const result = await tool.run(ctx, p)
+        if (failed(result)) failedCalls.set(signature(name, p), result)
+        else {
+          done.add(signature(name, p))
+          if (name === 'write_file' || name === 'edit_file') {
+            changed.add(String(p.path))
+            version++
+            log.push(result)
+          }
+        }
+        const what = name === 'run_command' ? `\`${p.command}\`` : `${name} ${p.path ?? ''}`.trim()
+        if (rejectedByUser(result)) {
+          log.push(`${what}: von dir abgelehnt`)
+          userRejected = true
+        } else if (name === 'run_command') {
+          log.push(`${what}: ${result.split('\n')[0]}`)
+          lastCommandFailed = !result.startsWith('Erfolgreich')
+          commandsRun++
+        }
+        else if (failed(result)) log.push(`${what}: ${result.split('\n')[0].replace(/^Fehler: /, 'fehlgeschlagen – ')}`)
+        return result
       } catch (err) {
-        return `Fehler: ${err instanceof Error ? err.message : String(err)}`
+        const result = `Fehler: ${err instanceof Error ? err.message : String(err)}`
+        failedCalls.set(signature(name, p), result)
+        log.push(`${name} ${p.path ?? ''}: fehlgeschlagen – ${result.slice(8).split('\n')[0]}`)
+        return result
       }
+    },
+    /** Zusammenfassung aus dem, was tatsächlich passiert ist – falls das Modell keine liefert */
+    summary(): string {
+      if (log.length === 0) return 'Es wurde nichts geändert und kein Befehl ausgeführt.'
+      return `Das wurde tatsächlich gemacht:\n${log.map((l) => `- ${l}`).join('\n')}`
     }
   }
 }
 
-/**
- * Kleine Modelle schreiben Werkzeug-Aufrufe oft als normalen JSON-Text statt im Format ihres
- * Chat-Templates, z. B. ```json {"name": "read_file", "arguments": {...}} ```. Das wird hier erkannt.
- */
-export function parseToolCall(text: string, available: Record<string, Tool>): { name: string; args: Params } | null {
-  const start = text.indexOf('{')
-  if (start < 0) return null
-  // Erstes vollständiges JSON-Objekt per Klammerzählung herauslösen
-  let depth = 0
-  let inString = false
-  for (let i = start; i < text.length; i++) {
-    const c = text[i]
-    if (inString) {
-      if (c === '\\') i++
-      else if (c === '"') inString = false
-    } else if (c === '"') inString = true
-    else if (c === '{') depth++
-    else if (c === '}' && --depth === 0) {
-      try {
-        const obj = JSON.parse(text.slice(start, i + 1))
-        const name = obj.name ?? obj.function ?? obj.tool
-        if (typeof name !== 'string' || !available[name]) return null
-        let args = obj.arguments ?? obj.parameters ?? obj.args ?? {}
-        if (typeof args === 'string') args = JSON.parse(args)
-        return { name, args }
-      } catch {
-        return null
-      }
+// ---------- Werkzeug-Aufrufe im Text erkennen ----------
+//
+// Kleine Modelle schreiben Werkzeug-Aufrufe oft als normalen Text statt im Format ihres
+// Chat-Templates – und das selten als sauberes JSON. Typisch:
+//   ```json
+//   { "name": "write_file", "arguments": { "path": "a.js", "content": `
+//   function a() { … }
+//   ` } }
+//   ```
+// Deshalb ein toleranter Parser: erlaubt Backtick- und einfache Anführungszeichen, rohe
+// Zeilenumbrüche in Strings, Schlüssel ohne Anführungszeichen und Kommas am Ende.
+
+class Lenient {
+  i = 0
+  constructor(private s: string) {}
+
+  static parseAt(s: string, start: number): { value: unknown; end: number } | null {
+    const p = new Lenient(s)
+    p.i = start
+    try {
+      const value = p.value()
+      return { value, end: p.i }
+    } catch {
+      return null
     }
   }
-  return null
+
+  private ws(): void {
+    for (;;) {
+      while (this.i < this.s.length && /\s/.test(this.s[this.i])) this.i++
+      // Kommentare überspringen
+      if (this.s.startsWith('//', this.i)) {
+        while (this.i < this.s.length && this.s[this.i] !== '\n') this.i++
+      } else return
+    }
+  }
+
+  private value(): unknown {
+    this.ws()
+    const c = this.s[this.i]
+    if (c === '{') return this.object()
+    if (c === '[') return this.array()
+    if (c === '"' || c === "'" || c === '`') return this.string(c)
+    const lit = /^(true|false|null|-?\d+(\.\d+)?([eE][+-]?\d+)?)/.exec(this.s.slice(this.i, this.i + 40))
+    if (!lit) throw new Error('Wert erwartet')
+    this.i += lit[0].length
+    return lit[1] === 'true' ? true : lit[1] === 'false' ? false : lit[1] === 'null' ? null : Number(lit[0])
+  }
+
+  private object(): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    this.i++ // {
+    for (;;) {
+      this.ws()
+      if (this.s[this.i] === '}') {
+        this.i++
+        return out
+      }
+      let key: string
+      const c = this.s[this.i]
+      if (c === '"' || c === "'" || c === '`') key = this.string(c)
+      else {
+        const id = /^[A-Za-z_$][\w$]*/.exec(this.s.slice(this.i, this.i + 100))
+        if (!id) throw new Error('Schlüssel erwartet')
+        key = id[0]
+        this.i += key.length
+      }
+      this.ws()
+      if (this.s[this.i++] !== ':') throw new Error(': erwartet')
+      out[key] = this.value()
+      this.ws()
+      if (this.s[this.i] === ',') this.i++
+      else if (this.s[this.i] !== '}') throw new Error(', oder } erwartet')
+    }
+  }
+
+  private array(): unknown[] {
+    const out: unknown[] = []
+    this.i++ // [
+    for (;;) {
+      this.ws()
+      if (this.s[this.i] === ']') {
+        this.i++
+        return out
+      }
+      out.push(this.value())
+      this.ws()
+      if (this.s[this.i] === ',') this.i++
+      else if (this.s[this.i] !== ']') throw new Error(', oder ] erwartet')
+    }
+  }
+
+  private string(q: string): string {
+    this.i++ // öffnendes Zeichen
+    let out = ''
+    while (this.i < this.s.length) {
+      const c = this.s[this.i++]
+      if (c === q) {
+        // Bei Backticks steht der Code meist ab der nächsten Zeile – führenden Umbruch weglassen
+        return q === '`' && out.startsWith('\n') ? out.slice(1) : out
+      }
+      if (c !== '\\') {
+        out += c
+        continue
+      }
+      const n = this.s[this.i++]
+      if (q === '`') {
+        // In Backticks steht Code: Backslashes so lassen, wie sie sind
+        out += n === '`' ? '`' : '\\' + n
+        continue
+      }
+      const map: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', '0': '\0' }
+      if (n === 'u') {
+        out += String.fromCharCode(parseInt(this.s.slice(this.i, this.i + 4), 16))
+        this.i += 4
+      } else out += map[n] ?? n
+    }
+    throw new Error('String nicht beendet')
+  }
+}
+
+/** Eine Werkzeug-Beschreibung (Schema) statt eines Aufrufs? */
+function isDefinition(obj: Record<string, any>): boolean {
+  if (obj.type === 'function' && typeof obj.function === 'object') return true
+  const params = obj.parameters ?? obj.arguments
+  return typeof obj.description === 'string' && !!params && typeof params === 'object' && ('properties' in params || params.type === 'object')
+}
+
+/** Alle Werkzeug-Aufrufe in einer Antwort, in der Reihenfolge, in der sie dort stehen. */
+export function parseToolCalls(text: string, available: Record<string, Tool>): { name: string; args: Params }[] {
+  const calls: { name: string; args: Params }[] = []
+  // Manche Modelle kopieren die Werkzeug-Beschreibungen aus ihrer Anleitung in die Antwort – die sind keine Aufrufe
+  text = text.replace(/<tools>[\s\S]*?<\/tools>/g, (m) => ' '.repeat(m.length))
+  let pos = 0
+  while ((pos = text.indexOf('{', pos)) >= 0) {
+    const parsed = Lenient.parseAt(text, pos)
+    const obj = parsed?.value as Record<string, any> | undefined
+    if (parsed && obj && typeof obj === 'object' && isDefinition(obj)) {
+      pos = parsed.end
+      continue
+    }
+    const name = obj && typeof obj === 'object' ? (obj.name ?? obj.function ?? obj.tool) : undefined
+    if (parsed && typeof name === 'string' && available[name]) {
+      let args = obj!.arguments ?? obj!.parameters ?? obj!.args ?? {}
+      if (typeof args === 'string') args = (Lenient.parseAt(args, args.indexOf('{'))?.value as Params) ?? {}
+      calls.push({ name, args })
+      pos = parsed.end
+    } else pos++
+  }
+  return calls
 }

@@ -41,6 +41,9 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [
+      "THIRD_PARTY_LICENSES.txt"
+    ],
     "asarUnpack": [
       "node_modules/node-llama-cpp/**",
       "node_modules/@node-llama-cpp/**"

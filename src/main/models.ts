@@ -2,76 +2,13 @@ import { app } from 'electron'
 import { createWriteStream } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { totalmem } from 'node:os'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import type { CatalogEntry, CatalogModel, DownloadProgress, Fit, InstalledModel } from '../shared/types'
+import { cpus, totalmem } from 'node:os'
+import type { CatalogEntry, DownloadProgress, Fit, InstalledModel, ModelVariant } from '../shared/types'
+import { CATALOG } from './catalog'
 
-const HF = 'https://huggingface.co'
-
-/** Kuratierte Modelle, die auf normalen Laptops laufen. Größen sind die echten Dateigrößen. */
-export const CATALOG: CatalogModel[] = [
-  {
-    id: 'qwen2.5-coder-1.5b',
-    name: 'Qwen2.5 Coder 1.5B',
-    description: 'Sehr schnell, gut für Code-Fragen und kurze Erklärungen. Guter Einstieg.',
-    params: '1.5B',
-    url: `${HF}/bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf`,
-    fileName: 'Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf',
-    sizeBytes: 986_000_000,
-    tags: ['Code', 'schnell']
-  },
-  {
-    id: 'qwen2.5-coder-3b',
-    name: 'Qwen2.5 Coder 3B',
-    description: 'Guter Kompromiss aus Tempo und Qualität für Programmieraufgaben.',
-    params: '3B',
-    url: `${HF}/bartowski/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf`,
-    fileName: 'Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf',
-    sizeBytes: 1_930_000_000,
-    tags: ['Code', 'empfohlen']
-  },
-  {
-    id: 'qwen3-4b',
-    name: 'Qwen3 4B',
-    description: 'Allround-Modell mit „Nachdenken“-Modus. Stark bei Logik und Erklärungen.',
-    params: '4B',
-    url: `${HF}/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf`,
-    fileName: 'Qwen3-4B-Q4_K_M.gguf',
-    sizeBytes: 2_500_000_000,
-    tags: ['Allround', 'Reasoning']
-  },
-  {
-    id: 'gemma-3-4b',
-    name: 'Gemma 3 4B',
-    description: 'Allround-Modell von Google, gut in Deutsch und beim Formulieren.',
-    params: '4B',
-    url: `${HF}/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf`,
-    fileName: 'google_gemma-3-4b-it-Q4_K_M.gguf',
-    sizeBytes: 2_490_000_000,
-    tags: ['Allround', 'Deutsch']
-  },
-  {
-    id: 'llama-3.2-3b',
-    name: 'Llama 3.2 3B',
-    description: 'Kompaktes Allround-Modell von Meta.',
-    params: '3B',
-    url: `${HF}/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf`,
-    fileName: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
-    sizeBytes: 2_020_000_000,
-    tags: ['Allround']
-  },
-  {
-    id: 'qwen2.5-coder-7b',
-    name: 'Qwen2.5 Coder 7B',
-    description: 'Deutlich bessere Code-Qualität, braucht aber viel Arbeitsspeicher.',
-    params: '7B',
-    url: `${HF}/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf`,
-    fileName: 'Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf',
-    sizeBytes: 4_680_000_000,
-    tags: ['Code', 'Qualität']
-  }
-]
+export { CATALOG }
 
 export const modelsDir = (): string => join(app.getPath('userData'), 'models')
 const importedListFile = (): string => join(app.getPath('userData'), 'imported-models.json')
@@ -101,16 +38,27 @@ async function writeImported(paths: string[]): Promise<void> {
   await writeFile(importedListFile(), JSON.stringify(paths, null, 2))
 }
 
+/** "-00002-of-00006" – Folgeteile eines mehrteiligen Modells */
+const SPLIT = /-(\d{5})-of-(\d{5})\.gguf$/i
+
 export async function listInstalled(): Promise<InstalledModel[]> {
   const dir = modelsDir()
   await mkdir(dir, { recursive: true })
   const result: InstalledModel[] = []
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.gguf'))
 
-  for (const file of await readdir(dir)) {
-    if (!file.endsWith('.gguf')) continue
-    const p = join(dir, file)
-    const s = await stat(p)
-    result.push({ path: p, name: prettyName(file), sizeBytes: s.size, external: false })
+  for (const file of files) {
+    const split = file.match(SPLIT)
+    // Mehrteilige Modelle nur einmal zeigen – über den ersten Teil, den llama.cpp auch zum Laden braucht
+    if (split && split[1] !== '00001') continue
+    let size = (await stat(join(dir, file))).size
+    if (split) {
+      const prefix = file.replace(SPLIT, '')
+      const parts = files.filter((f) => f.replace(SPLIT, '') === prefix && SPLIT.test(f))
+      if (parts.length !== Number(split[2])) continue // Download noch nicht vollständig
+      for (const part of parts) if (part !== file) size += (await stat(join(dir, part))).size
+    }
+    result.push({ path: join(dir, file), name: prettyName(file), sizeBytes: size, external: false })
   }
 
   for (const p of await readImported()) {
@@ -124,9 +72,51 @@ export async function listInstalled(): Promise<InstalledModel[]> {
   return result
 }
 
+/**
+ * Speicherbandbreite in GB/s – sie bestimmt das Tempo: Pro Token müssen alle aktiven Gewichte
+ * einmal aus dem Speicher gelesen werden. Grobe Werte für Apple Silicon.
+ */
+function memoryBandwidth(): number {
+  const cpu = cpus()[0]?.model ?? ''
+  const table: [RegExp, number][] = [
+    [/M\d Ultra/, 800],
+    [/M4 Max/, 546],
+    [/M[1-3] Max/, 400],
+    [/M5 Max/, 600],
+    [/M4 Pro/, 273],
+    [/M[15] Pro/, 200],
+    [/M2 Pro/, 200],
+    [/M3 Pro/, 150],
+    [/M5/, 153],
+    [/M4/, 120],
+    [/M[23]/, 100],
+    [/M1/, 68]
+  ]
+  return table.find(([re]) => re.test(cpu))?.[1] ?? 50
+}
+
+/** Geschätzte Token pro Sekunde (≈ Wörter pro Sekunde) – null, wenn das Modell nicht passt. */
+function estimateSpeed(m: (typeof CATALOG)[number], v: ModelVariant, fit: Fit): number | null {
+  if (fit === 'zu-gross') return null
+  const activeBytes = v.sizeBytes * (m.activeParamsB / m.totalParamsB)
+  // In der Praxis erreicht man etwa 60 % der theoretischen Bandbreite
+  return Math.max(1, Math.round((memoryBandwidth() * 1e9 * 0.6) / activeBytes))
+}
+
 export async function getCatalog(): Promise<CatalogEntry[]> {
-  const installed = new Set((await listInstalled()).map((m) => basename(m.path)))
-  return CATALOG.map((m) => ({ ...m, fit: estimateFit(m.sizeBytes), installed: installed.has(m.fileName) }))
+  const present = new Set(await readdir(modelsDir()).catch(() => [] as string[]))
+  return CATALOG.map((m) => ({
+    ...m,
+    variants: m.variants.map((v) => {
+      const fit = estimateFit(v.sizeBytes)
+      return {
+        ...v,
+        fit,
+        installed: v.files.every((f) => present.has(f.fileName)),
+        tokensPerSec: estimateSpeed(m, v, fit)
+      }
+    })
+  }))
 }
 
 export async function importModel(path: string): Promise<void> {
@@ -142,64 +132,81 @@ export async function removeModel(path: string): Promise<void> {
     return
   }
   if (!path.startsWith(modelsDir())) throw new Error('Pfad liegt außerhalb des Modell-Ordners')
-  await rm(path, { force: true })
+  // Bei mehrteiligen Modellen alle Teile löschen
+  const file = basename(path)
+  if (SPLIT.test(file)) {
+    const prefix = file.replace(SPLIT, '')
+    for (const f of await readdir(modelsDir())) {
+      if (SPLIT.test(f) && f.replace(SPLIT, '') === prefix) await rm(join(modelsDir(), f), { force: true })
+    }
+  } else await rm(path, { force: true })
 }
 
 function prettyName(file: string): string {
-  return file.replace(/\.gguf$/i, '').replace(/[-_]/g, ' ')
+  return file.replace(SPLIT, '').replace(/\.gguf$/i, '').replace(/[-_]/g, ' ')
 }
 
 // ---------- Downloads ----------
 
 const activeDownloads = new Map<string, AbortController>()
 
+function findVariant(id: string): ModelVariant | undefined {
+  for (const m of CATALOG) {
+    const v = m.variants.find((x) => x.id === id)
+    if (v) return v
+  }
+  return undefined
+}
+
+/** Lädt alle Dateien einer Variante nacheinander. Abgebrochene Downloads werden fortgesetzt. */
 export async function downloadModel(id: string, onProgress: (p: DownloadProgress) => void): Promise<void> {
-  const model = CATALOG.find((m) => m.id === id)
-  if (!model) throw new Error(`Unbekanntes Modell: ${id}`)
+  const variant = findVariant(id)
+  if (!variant) throw new Error(`Unbekannte Modell-Variante: ${id}`)
   if (activeDownloads.has(id)) return
 
   const controller = new AbortController()
   activeDownloads.set(id, controller)
   await mkdir(modelsDir(), { recursive: true })
-  const target = join(modelsDir(), model.fileName)
-  const partial = `${target}.part`
+  const total = variant.sizeBytes
+  let doneBefore = 0 // Bytes der bereits fertigen Teile
 
   try {
-    // Abgebrochene Downloads fortsetzen, falls eine .part-Datei existiert
-    let start = 0
-    try {
-      start = (await stat(partial)).size
-    } catch {
-      /* keine Teildatei */
-    }
-
-    const res = await fetch(model.url, {
-      signal: controller.signal,
-      headers: start > 0 ? { Range: `bytes=${start}-` } : {}
-    })
-    if (!res.ok || !res.body) throw new Error(`Download fehlgeschlagen (HTTP ${res.status})`)
-    if (res.status !== 206) start = 0 // Server unterstützt kein Fortsetzen
-
-    const total = start + Number(res.headers.get('content-length') ?? model.sizeBytes)
-    let received = start
-    let lastEmit = 0
-
-    const body = Readable.fromWeb(res.body as import('node:stream/web').ReadableStream)
-    body.on('data', (chunk: Buffer) => {
-      received += chunk.length
-      const now = Date.now()
-      if (now - lastEmit > 200) {
-        lastEmit = now
-        onProgress({ id, received, total, done: false })
+    for (const file of variant.files) {
+      const target = join(modelsDir(), file.fileName)
+      const existing = await stat(target).catch(() => null)
+      if (existing && existing.size === file.sizeBytes) {
+        doneBefore += file.sizeBytes
+        continue
       }
-    })
+      const partial = `${target}.part`
+      let start = (await stat(partial).catch(() => null))?.size ?? 0
 
-    await pipeline(body, createWriteStream(partial, { flags: start > 0 ? 'a' : 'w' }))
-    await rename(partial, target)
+      const res = await fetch(file.url, {
+        signal: controller.signal,
+        headers: start > 0 ? { Range: `bytes=${start}-` } : {}
+      })
+      if (!res.ok || !res.body) throw new Error(`Download fehlgeschlagen (HTTP ${res.status})`)
+      if (res.status !== 206) start = 0 // Server unterstützt kein Fortsetzen
+
+      let received = start
+      let lastEmit = 0
+      const body = Readable.fromWeb(res.body as import('node:stream/web').ReadableStream)
+      body.on('data', (chunk: Buffer) => {
+        received += chunk.length
+        const now = Date.now()
+        if (now - lastEmit > 200) {
+          lastEmit = now
+          onProgress({ id, received: doneBefore + received, total, done: false })
+        }
+      })
+      await pipeline(body, createWriteStream(partial, { flags: start > 0 ? 'a' : 'w' }))
+      await rename(partial, target)
+      doneBefore += file.sizeBytes
+    }
     onProgress({ id, received: total, total, done: true })
   } catch (err) {
     const aborted = controller.signal.aborted
-    onProgress({ id, received: 0, total: model.sizeBytes, done: true, error: aborted ? 'Abgebrochen' : String(err) })
+    onProgress({ id, received: 0, total, done: true, error: aborted ? 'Abgebrochen' : String(err) })
   } finally {
     activeDownloads.delete(id)
   }
