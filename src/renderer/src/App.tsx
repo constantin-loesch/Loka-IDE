@@ -23,6 +23,25 @@ function fileTab(path: string, f: OpenedFile): Tab {
   }
 }
 
+/** Was beim nächsten Start wiederhergestellt wird. */
+interface SavedSession {
+  root: string | null
+  /** Pfade der offenen Datei-Tabs in ihrer Reihenfolge */
+  files: string[]
+  active: string | null
+  modelsTab: boolean
+}
+
+async function loadSession(): Promise<SavedSession | null> {
+  const s = (await window.api.session.get().catch(() => null)) as SavedSession | null
+  return s && Array.isArray(s.files) ? s : null
+}
+
+function saveSession(s: SavedSession): void {
+  // Speichern ist nur Komfort – Fehler ignorieren
+  window.api.session.set(s).catch(() => undefined)
+}
+
 export default function App(): React.JSX.Element {
   const [root, setRoot] = useState<string | null>(null)
   const [tabs, setTabs] = useState<Tab[]>([{ id: MODELS_TAB, title: 'Modelle', kind: 'models' }])
@@ -31,11 +50,51 @@ export default function App(): React.JSX.Element {
   const [chatOpen, setChatOpen] = useState(true)
   const [status, setStatus] = useState<EngineStatus>({ state: 'idle' })
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  // Erst speichern, wenn die letzte Sitzung wiederhergestellt ist – sonst würde sie überschrieben
+  const [restored, setRestored] = useState(false)
 
   useEffect(() => {
     window.api.engine.status().then(setStatus)
     return window.api.engine.onStatus(setStatus)
   }, [])
+
+  // Beim Start: zuletzt geöffneten Ordner und Dateien wiederherstellen
+  useEffect(() => {
+    void (async () => {
+      const saved = await loadSession()
+      if (!saved) {
+        setRestored(true)
+        return
+      }
+      if (saved.root) {
+        // Nur wiederherstellen, wenn es den Ordner noch gibt
+        const exists = await window.api.fs.readDir(saved.root).then(() => true, () => false)
+        if (exists) setRoot(saved.root)
+      }
+      const reopened: Tab[] = []
+      for (const path of saved.files) {
+        // Gelöschte oder verschobene Dateien still überspringen
+        const opened = await window.api.fs.openFile(path).catch(() => null)
+        if (opened) reopened.push(fileTab(path, opened))
+      }
+      const next: Tab[] = [...(saved.modelsTab ? [{ id: MODELS_TAB, title: 'Modelle', kind: 'models' as const }] : []), ...reopened]
+      setTabs(next)
+      const active = next.find((t) => t.id === saved.active) ?? next[next.length - 1]
+      setActiveId(active?.id ?? '')
+      setRestored(true)
+    })()
+  }, [])
+
+  // Offene Tabs merken, sobald sich etwas ändert
+  useEffect(() => {
+    if (!restored) return
+    saveSession({
+      root,
+      files: tabs.flatMap((t) => ('path' in t ? [t.path] : [])),
+      active: activeId || null,
+      modelsTab: tabs.some((t) => t.kind === 'models')
+    })
+  }, [restored, root, tabs, activeId])
 
   const openFolder = async (): Promise<void> => {
     const dir = await window.api.fs.openFolder()

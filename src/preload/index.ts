@@ -83,6 +83,10 @@ const api = {
     onApproval: (cb: (req: ApprovalRequest) => void) => on('agent:approval', cb),
     answer: (a: ApprovalAnswer): Promise<void> => ipcRenderer.invoke('agent:answer', a)
   },
+  session: {
+    get: (): Promise<unknown> => ipcRenderer.invoke('session:get'),
+    set: (data: unknown): Promise<void> => ipcRenderer.invoke('session:set', data)
+  },
   menu: {
     onCloseTab: (cb: () => void) => on('menu:closeTab', cb)
   },

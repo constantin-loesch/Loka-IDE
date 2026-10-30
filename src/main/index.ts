@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { cpus, platform, totalmem } from 'node:os'
 import { join } from 'node:path'
@@ -119,6 +120,20 @@ ipcMain.handle('models:import', async () => {
   if (r.canceled || !r.filePaths[0]) return false
   await models.importModel(r.filePaths[0])
   return true
+})
+
+// ---------- Sitzung (offener Ordner und Tabs) ----------
+// Als Datei statt localStorage: wird sofort geschrieben und übersteht auch einen Absturz
+const sessionFile = (): string => join(app.getPath('userData'), 'session.json')
+ipcMain.handle('session:get', () => {
+  try {
+    return JSON.parse(readFileSync(sessionFile(), 'utf8'))
+  } catch {
+    return null
+  }
+})
+ipcMain.handle('session:set', (_e, data: unknown) => {
+  writeFileSync(sessionFile(), JSON.stringify(data, null, 2))
 })
 
 // ---------- Modell-Einstellungen ----------
