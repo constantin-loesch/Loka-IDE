@@ -91,6 +91,46 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  // Das Modell kann im Agent-Modus Dateien öffnen und zu einer Zeile springen
+  const openFileRef = useRef(openFile)
+  openFileRef.current = openFile
+  useEffect(
+    () =>
+      window.api.agent.onOpenFile(async ({ path, line }) => {
+        await openFileRef.current(path)
+        // Warten, bis der Editor das Modell der Datei angezeigt hat
+        setTimeout(() => {
+          const ed = editorRef.current
+          if (!ed) return
+          ed.revealLineInCenter(line)
+          ed.setPosition({ lineNumber: line, column: 1 })
+        }, 150)
+      }),
+    []
+  )
+
+  // Der Agent hat eine Datei geändert: offenen Tab aktualisieren (mit Cmd+Z rückgängig zu machen)
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  useEffect(
+    () =>
+      window.api.agent.onFileChanged(async (path) => {
+        const tab = tabsRef.current.find((t) => t.id === path)
+        if (!tab || tab.kind !== 'file' || tab.dirty) return
+        const opened = await window.api.fs.openFile(path).catch(() => null)
+        if (!opened || opened.kind !== 'text') return
+        const model = monacoEditor.getModel(modelUri(path))
+        if (model && model.getValue() !== opened.content) {
+          model.pushStackElement()
+          model.pushEditOperations([], [{ range: model.getFullModelRange(), text: opened.content }], () => null)
+          model.pushStackElement()
+        }
+        // Inhalt entspricht wieder der Datei auf der Festplatte
+        setTabs((prev) => prev.map((t) => (t.id === path && t.kind === 'file' ? { ...t, content: opened.content, dirty: false } : t)))
+      }),
+    []
+  )
+
   // Cmd+W aus dem App-Menü schließt den aktiven Tab
   const closeActiveRef = useRef<() => void>(() => {})
   closeActiveRef.current = () => {
@@ -208,6 +248,8 @@ export default function App(): React.JSX.Element {
         {chatOpen && (
           <ChatPanel
             status={status}
+            root={root}
+            isDirty={(path) => tabs.some((t) => t.kind === 'file' && t.path === path && t.dirty)}
             getEditorContext={getEditorContext}
             onInsert={insertIntoEditor}
             onOpenModels={openModels}

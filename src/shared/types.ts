@@ -51,15 +51,95 @@ export type EngineStatus =
 
 export interface ChatChunk {
   requestId: string
-  kind: 'text' | 'thought'
+  /**
+   * 'tool' = das Modell benutzt ein Werkzeug, 'tool-result' = Ausgabe dazu (z. B. Terminal),
+   * 'retract' = letzten Textabschnitt verwerfen
+   */
+  kind: 'text' | 'thought' | 'tool' | 'tool-result' | 'retract'
   text: string
 }
 
 export interface ChatRequest {
   requestId: string
   prompt: string
-  temperature?: number
+  /** Projektordner, in dem das Modell arbeiten darf */
+  root?: string | null
+  mode: ChatMode
 }
+
+/**
+ * chat  = nur Unterhaltung
+ * read  = darf im Projekt suchen und lesen
+ * agent = darf zusätzlich Dateien schreiben und Terminal-Befehle ausführen (mit Freigabe)
+ */
+export type ChatMode = 'chat' | 'read' | 'agent'
+
+/** Wann der Agent ohne Nachfrage handeln darf. Gefährliche Befehle fragen immer. */
+export type ApprovalMode = 'ask' | 'auto-edits' | 'auto-all'
+
+/** Der Agent möchte etwas verändern und wartet auf die Freigabe des Nutzers. */
+export interface ApprovalRequest {
+  id: string
+  requestId: string
+  kind: 'write' | 'edit' | 'command'
+  /** Absoluter Pfad bei Dateiänderungen */
+  path?: string
+  /** Pfad relativ zum Projekt, zur Anzeige */
+  relPath?: string
+  command?: string
+  /** Bisheriger und neuer Text (bei edit nur der ersetzte Abschnitt) */
+  before?: string
+  after?: string
+  /** Neue Datei? */
+  isNew?: boolean
+  /** Gefährlicher Befehl – wird auch im Automatik-Modus nachgefragt */
+  danger?: string
+}
+
+export interface ApprovalAnswer {
+  id: string
+  approved: boolean
+  /** Für den Rest dieses Chats gleichartige Aktionen ohne Nachfrage erlauben */
+  always?: boolean
+  /** Begründung bei Ablehnung – wird dem Modell mitgeteilt */
+  reason?: string
+}
+
+/** Vom Modell angefordert: Datei im Editor öffnen und zur Zeile springen. */
+export interface AgentOpenFile {
+  path: string
+  line: number
+}
+
+/** Einstellbare Modell-Parameter. Werden in userData/settings.json gespeichert. */
+export interface ModelSettings {
+  // Beim Generieren – gelten sofort
+  temperature: number
+  topP: number
+  topK: number
+  minP: number
+  repeatPenalty: number
+  repeatLastTokens: number
+  /** 0 = unbegrenzt */
+  maxTokens: number
+  /** null = zufällig */
+  seed: number | null
+  /** null = Standard der Bibliothek, 0 = Nachdenken aus */
+  thoughtTokens: number | null
+  systemPrompt: string
+  /** Wie oft das Modell pro Antwort Werkzeuge benutzen darf */
+  maxToolCalls: number
+  approvalMode: ApprovalMode
+  /** Sekunden, nach denen ein Terminal-Befehl abgebrochen wird */
+  commandTimeout: number
+  // Beim Laden – gelten erst nach Neuladen des Modells
+  /** 0 = automatisch so groß wie möglich */
+  contextSize: number
+  gpuLayers: 'auto' | 'max' | number
+  flashAttention: boolean
+}
+
+export const LOAD_SETTINGS: (keyof ModelSettings)[] = ['contextSize', 'gpuLayers', 'flashAttention']
 
 export interface DirEntry {
   name: string

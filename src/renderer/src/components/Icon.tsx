@@ -19,6 +19,7 @@ const PATHS: Record<string, string> = {
   'arrow-up': 'M12 19V5M5 12l7-7 7 7',
   'arrow-down': 'M12 5v14M19 12l-7 7-7-7',
   check: 'M20 6 9 17l-5-5',
+  sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
   sparkle: 'M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z'
 }
 

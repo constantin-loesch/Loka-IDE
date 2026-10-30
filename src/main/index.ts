@@ -2,9 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { readdir } from 'node:fs/promises'
 import { cpus, platform, totalmem } from 'node:os'
 import { join } from 'node:path'
-import type { ChatRequest, DirEntry, SystemInfo, TextEncoding } from '../shared/types'
+import type { ApprovalAnswer, ChatRequest, DirEntry, ModelSettings, SystemInfo, TextEncoding } from '../shared/types'
 import * as files from './files'
+import * as agent from './agent'
 import * as git from './git'
+import * as settings from './settings'
 import * as llm from './llm'
 import * as models from './models'
 
@@ -54,7 +56,6 @@ ipcMain.handle('system:info', (): SystemInfo => ({
 ipcMain.handle('system:revealModels', () => shell.openPath(models.modelsDir()))
 
 // ---------- Dateisystem ----------
-const HIDDEN = new Set(['.git', 'node_modules', '.DS_Store', 'out', 'dist', '.next', '__pycache__'])
 
 ipcMain.handle('fs:openFolder', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
@@ -64,7 +65,7 @@ ipcMain.handle('fs:openFolder', async () => {
 ipcMain.handle('fs:readDir', async (_e, dir: string): Promise<DirEntry[]> => {
   const entries = await readdir(dir, { withFileTypes: true })
   return entries
-    .filter((e) => !HIDDEN.has(e.name))
+    .filter((e) => !files.HIDDEN.has(e.name))
     .map((e) => ({ name: e.name, path: join(dir, e.name), isDir: e.isDirectory() }))
     .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
 })
@@ -120,6 +121,11 @@ ipcMain.handle('models:import', async () => {
   return true
 })
 
+// ---------- Modell-Einstellungen ----------
+ipcMain.handle('settings:get', () => settings.getSettings())
+ipcMain.handle('settings:defaults', () => settings.DEFAULTS)
+ipcMain.handle('settings:update', (_e, patch: Partial<ModelSettings>) => settings.updateSettings(patch))
+
 // ---------- Engine ----------
 ipcMain.handle('engine:status', () => llm.getStatus())
 ipcMain.handle('engine:load', (_e, path: string) => {
@@ -128,13 +134,19 @@ ipcMain.handle('engine:load', (_e, path: string) => {
 ipcMain.handle('engine:unload', () => llm.unloadModel())
 ipcMain.handle('chat:send', async (_e, req: ChatRequest) => {
   try {
-    await llm.chat(req, (chunk) => send('chat:chunk', chunk))
+    await llm.chat(req, {
+      onChunk: (chunk) => send('chat:chunk', chunk),
+      onOpenFile: (file) => send('agent:openFile', file),
+      onFileChanged: (path) => send('agent:fileChanged', path),
+      onApproval: (approval) => send('agent:approval', approval)
+    })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 })
 ipcMain.handle('chat:stop', () => llm.stopChat())
+ipcMain.handle('agent:answer', (_e, answer: ApprovalAnswer) => agent.answerApproval(answer))
 ipcMain.handle('chat:reset', () => llm.resetChat())
 
 llm.onStatus((s) => send('engine:status', s))

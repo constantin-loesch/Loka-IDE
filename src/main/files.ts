@@ -5,6 +5,9 @@ import { extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { MediaKind, OpenedFile, TextEncoding } from '../shared/types'
 
+/** Ordner, die im Explorer und für das Modell ausgeblendet werden. */
+export const HIDDEN = new Set(['.git', 'node_modules', '.DS_Store', 'out', 'dist', '.next', '__pycache__'])
+
 /** Eigenes Protokoll, über das die Oberfläche Bilder, PDFs, Audio und Video lädt. */
 export const FILE_SCHEME = 'lokal-file'
 

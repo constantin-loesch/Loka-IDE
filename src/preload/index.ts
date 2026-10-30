@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  AgentOpenFile,
+  ApprovalAnswer,
+  ApprovalRequest,
   CatalogEntry,
   ChatChunk,
   ChatRequest,
@@ -9,6 +12,7 @@ import type {
   GitStatus,
   EngineStatus,
   InstalledModel,
+  ModelSettings,
   OpenedFile,
   SystemInfo,
   TextEncoding
@@ -68,6 +72,17 @@ const api = {
       ipcRenderer.invoke('github:publish', dir, name, isPrivate)
   },
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('shell:openUrl', url),
+  settings: {
+    get: (): Promise<ModelSettings> => ipcRenderer.invoke('settings:get'),
+    defaults: (): Promise<ModelSettings> => ipcRenderer.invoke('settings:defaults'),
+    update: (patch: Partial<ModelSettings>): Promise<ModelSettings> => ipcRenderer.invoke('settings:update', patch)
+  },
+  agent: {
+    onOpenFile: (cb: (f: AgentOpenFile) => void) => on('agent:openFile', cb),
+    onFileChanged: (cb: (path: string) => void) => on('agent:fileChanged', cb),
+    onApproval: (cb: (req: ApprovalRequest) => void) => on('agent:approval', cb),
+    answer: (a: ApprovalAnswer): Promise<void> => ipcRenderer.invoke('agent:answer', a)
+  },
   menu: {
     onCloseTab: (cb: () => void) => on('menu:closeTab', cb)
   },

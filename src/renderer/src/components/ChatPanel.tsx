@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { EngineStatus, InstalledModel } from '../../../shared/types'
+import type { ApprovalAnswer, ApprovalRequest, ChatMode, EngineStatus, InstalledModel } from '../../../shared/types'
+import ApprovalCard from './ApprovalCard'
 import { Icon } from './Icon'
+import SettingsPanel from './SettingsPanel'
 
 export interface EditorContext {
   fileName: string
@@ -9,11 +11,35 @@ export interface EditorContext {
   selection: string
 }
 
+/** Antwortabschnitte in der Reihenfolge, in der sie kamen: Text, Gedanken und Werkzeug-Schritte. */
+interface Part {
+  kind: 'text' | 'thought' | 'tool'
+  text: string
+  /** Bei Werkzeug-Schritten: Ausgabe, z. B. vom Terminal */
+  output?: string
+}
+
+const MODES: { value: ChatMode; label: string; title: string }[] = [
+  { value: 'chat', label: 'Nur Chat', title: 'Das Modell sieht nur, was du schickst' },
+  { value: 'read', label: 'Codebase lesen', title: 'Das Modell darf im Projekt suchen und Dateien lesen' },
+  { value: 'agent', label: 'Coding-Agent', title: 'Darf zusätzlich Dateien ändern und Terminal-Befehle ausführen – jeweils nach deiner Freigabe' }
+]
+
+function loadMode(): ChatMode {
+  try {
+    const m = localStorage.getItem('chatMode')
+    if (m === 'chat' || m === 'read' || m === 'agent') return m
+  } catch {
+    // Speicher nicht verfügbar
+  }
+  return 'read'
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   text: string
-  thought?: string
+  parts?: Part[]
   /** Kurzer Hinweis, welcher Kontext mitgeschickt wurde */
   contextLabel?: string
   error?: string
@@ -21,24 +47,66 @@ interface Message {
 
 interface Props {
   status: EngineStatus
+  /** Geöffneter Projektordner – nötig, damit das Modell selbst navigieren kann */
+  root: string | null
   getEditorContext: () => EditorContext | null
   onInsert: (code: string) => void
   onOpenModels: () => void
+  /** Hat die Datei ungespeicherte Änderungen im Editor? Dann darf der Agent sie nicht überschreiben. */
+  isDirty: (path: string) => boolean
 }
 
 // Ganze Dateien kürzen, damit sie in den Kontext des Modells passen (~4 Zeichen pro Token)
 const MAX_FILE_CHARS = 16_000
 
-export default function ChatPanel({ status, getEditorContext, onInsert, onOpenModels }: Props): React.JSX.Element {
+export default function ChatPanel({ status, root, getEditorContext, onInsert, onOpenModels, isDirty }: Props): React.JSX.Element {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [includeFile, setIncludeFile] = useState(true)
+  const [mode, setModeState] = useState<ChatMode>(loadMode)
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+  const [showSettings, setShowSettings] = useState(false)
   const [installed, setInstalled] = useState<InstalledModel[]>([])
   const listRef = useRef<HTMLDivElement>(null)
   const activeRequest = useRef<string | null>(null)
 
   const ready = status.state === 'ready'
+  const effectiveMode: ChatMode = root ? mode : 'chat'
+
+  const setMode = (m: ChatMode): void => {
+    setModeState(m)
+    try {
+      localStorage.setItem('chatMode', m)
+    } catch {
+      // egal
+    }
+  }
+
+  const answer = (a: ApprovalAnswer): void => {
+    setApprovals((prev) => prev.filter((r) => r.id !== a.id))
+    void window.api.agent.answer(a)
+  }
+
+  // Der Agent will etwas ändern – Freigabe-Karte anzeigen
+  const isDirtyRef = useRef(isDirty)
+  isDirtyRef.current = isDirty
+  useEffect(
+    () =>
+      window.api.agent.onApproval((req) => {
+        if (req.path && isDirtyRef.current(req.path)) {
+          // Ungespeicherte Änderungen des Nutzers nie überschreiben
+          void window.api.agent.answer({
+            id: req.id,
+            approved: false,
+            reason: `${req.relPath} hat ungespeicherte Änderungen im Editor. Der Nutzer muss die Datei erst speichern.`
+          })
+          return
+        }
+        setApprovals((prev) => [...prev, req])
+      }),
+    []
+  )
 
   useEffect(() => {
     window.api.models.installed().then(setInstalled)
@@ -50,13 +118,31 @@ export default function ChatPanel({ status, getEditorContext, onInsert, onOpenMo
       window.api.chat.onChunk((c) => {
         if (c.requestId !== activeRequest.current) return
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === c.requestId
-              ? c.kind === 'thought'
-                ? { ...m, thought: (m.thought ?? '') + c.text }
-                : { ...m, text: m.text + c.text }
-              : m
-          )
+          prev.map((m) => {
+            if (m.id !== c.requestId) return m
+            const parts = [...(m.parts ?? [])]
+            if (c.kind === 'tool-result') {
+              const idx = parts.map((p) => p.kind).lastIndexOf('tool')
+              if (idx >= 0) parts[idx] = { ...parts[idx], output: c.text }
+              return { ...m, parts }
+            }
+            if (c.kind === 'retract') {
+              // Werkzeug-Aufruf, den das Modell als Text geschrieben hat – nicht als Antwort zeigen
+              const idx = parts.map((p) => p.kind).lastIndexOf('text')
+              const removed = idx >= 0 ? parts.splice(idx, 1)[0].text : ''
+              return { ...m, parts, text: m.text.slice(0, m.text.length - removed.length) }
+            }
+            const last = parts[parts.length - 1]
+            // Platzhalter „bereitet … vor“ durch den echten Werkzeug-Schritt ersetzen
+            if (c.kind === 'tool' && last?.kind === 'tool' && last.text.startsWith('⏳')) {
+              parts[parts.length - 1] = { kind: 'tool', text: c.text }
+              return { ...m, parts }
+            }
+            // Text und Gedanken werden fortgeschrieben, jeder Werkzeug-Schritt ist ein eigener Eintrag
+            if (last && last.kind === c.kind && c.kind !== 'tool') parts[parts.length - 1] = { ...last, text: last.text + c.text }
+            else parts.push({ kind: c.kind, text: c.text })
+            return { ...m, parts, text: c.kind === 'text' ? m.text + c.text : m.text }
+          })
         )
       }),
     []
@@ -95,7 +181,8 @@ export default function ChatPanel({ status, getEditorContext, onInsert, onOpenMo
     setInput('')
     setBusy(true)
 
-    const res = await window.api.chat.send({ requestId, prompt })
+    const res = await window.api.chat.send({ requestId, prompt, root, mode: effectiveMode })
+    setApprovals([])
     if (!res.ok) setMessages((prev) => prev.map((m) => (m.id === requestId ? { ...m, error: res.error } : m)))
     activeRequest.current = null
     setBusy(false)
@@ -110,10 +197,19 @@ export default function ChatPanel({ status, getEditorContext, onInsert, onOpenMo
   return (
     <aside className="chat">
       <div className="panel-header">
-        <span>KI-Chat</span>
-        <button className="icon-btn" title="Neuer Chat" onClick={newChat}>
-          <Icon name="plus" size={16} />
-        </button>
+        <span>{showSettings ? 'Modell-Einstellungen' : 'KI-Chat'}</span>
+        <span className="header-actions">
+          <button
+            className={`icon-btn ${showSettings ? 'on' : ''}`}
+            title={showSettings ? 'Zurück zum Chat' : 'Modell-Einstellungen'}
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            <Icon name={showSettings ? 'chat' : 'sliders'} size={16} />
+          </button>
+          <button className="icon-btn" title="Neuer Chat" onClick={newChat}>
+            <Icon name="plus" size={16} />
+          </button>
+        </span>
       </div>
 
       <div className="chat-model">
@@ -140,12 +236,24 @@ export default function ChatPanel({ status, getEditorContext, onInsert, onOpenMo
         )}
       </div>
 
+      {showSettings ? (
+        <div className="chat-messages">
+          <SettingsPanel status={status} />
+        </div>
+      ) : (
+      <>
       <div className="chat-messages" ref={listRef}>
         {messages.length === 0 && (
           <div className="chat-empty">
             <Icon name="sparkle" size={28} />
             {ready ? (
-              <p>Frag etwas zu deinem Code. Die geöffnete Datei oder deine Auswahl wird automatisch mitgeschickt.</p>
+              <p>
+                {effectiveMode === 'agent'
+                  ? 'Gib dem Agent eine Aufgabe. Er liest Code, ändert Dateien und führt Befehle aus – jede Änderung und jeden Befehl gibst du vorher frei.'
+                  : effectiveMode === 'read'
+                    ? 'Frag etwas zu deinem Projekt. Das Modell sucht und liest die passenden Dateien selbst.'
+                    : 'Frag etwas zu deinem Code. Die geöffnete Datei oder deine Auswahl wird automatisch mitgeschickt.'}
+              </p>
             ) : (
               <>
                 <p>Lade zuerst ein lokales Modell, um zu chatten.</p>
@@ -159,24 +267,60 @@ export default function ChatPanel({ status, getEditorContext, onInsert, onOpenMo
         {messages.map((m) => (
           <div key={m.id} className={`msg ${m.role}`}>
             {m.contextLabel && <div className="ctx-chip">📎 {m.contextLabel}</div>}
-            {m.thought && (
-              <details className="thought">
-                <summary>Gedankengang</summary>
-                <pre>{m.thought.trim()}</pre>
-              </details>
+            {m.role === 'assistant' ? (
+              (m.parts ?? []).map((part, pi) =>
+                part.kind === 'tool' ? (
+                  part.output !== undefined ? (
+                    <details key={pi} className="tool-step has-output">
+                      <summary>{part.text}</summary>
+                      <pre>{part.output}</pre>
+                    </details>
+                  ) : (
+                    <div key={pi} className="tool-step">
+                      {part.text}
+                    </div>
+                  )
+                ) : part.kind === 'thought' ? (
+                  <details key={pi} className="thought">
+                    <summary>Gedankengang</summary>
+                    <pre>{part.text.trim()}</pre>
+                  </details>
+                ) : (
+                  <Markdown key={pi} text={part.text} onInsert={onInsert} />
+                )
+              )
+            ) : (
+              <p>{m.text}</p>
             )}
-            {m.role === 'assistant' ? <Markdown text={m.text} onInsert={onInsert} /> : <p>{m.text}</p>}
             {m.role === 'assistant' && !m.text && !m.error && busy && <span className="typing">●●●</span>}
             {m.error && <div className="error-box">{m.error}</div>}
           </div>
         ))}
+        {approvals.map((req) => (
+          <ApprovalCard key={req.id} req={req} onAnswer={answer} />
+        ))}
       </div>
 
       <div className="chat-input">
-        <label className="ctx-toggle">
-          <input type="checkbox" checked={includeFile} onChange={(e) => setIncludeFile(e.target.checked)} />
-          Datei / Auswahl mitsenden
-        </label>
+        <div className="ctx-toggles">
+          <label className="ctx-toggle">
+            <input type="checkbox" checked={includeFile} onChange={(e) => setIncludeFile(e.target.checked)} />
+            Datei / Auswahl mitsenden
+          </label>
+          <select
+            className="mode-select"
+            value={effectiveMode}
+            disabled={!root || busy}
+            title={root ? MODES.find((m) => m.value === effectiveMode)?.title : 'Öffne zuerst einen Ordner'}
+            onChange={(e) => setMode(e.target.value as ChatMode)}
+          >
+            {MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="input-row">
           <textarea
             value={input}
@@ -202,6 +346,8 @@ export default function ChatPanel({ status, getEditorContext, onInsert, onOpenMo
           )}
         </div>
       </div>
+      </>
+      )}
     </aside>
   )
 }
