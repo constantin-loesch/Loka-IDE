@@ -4,6 +4,9 @@
 # sofort wieder Datei-Attribute an, und codesign bricht dann ab.
 set -e
 
+# Der Monaco-Editor ist groß – beim Bündeln braucht Node mehr Speicher als die Vorgabe
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
+
 SRC="dist/mac-arm64/Lokal IDE.app"
 DEST="$HOME/Applications/Lokal IDE.app"
 

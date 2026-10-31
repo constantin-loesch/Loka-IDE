@@ -25,7 +25,8 @@ export const DEFAULTS: ModelSettings = {
   commandTimeout: 120,
   contextSize: 8192,
   gpuLayers: 'auto',
-  flashAttention: false
+  flashAttention: false,
+  gpuBackend: 'auto'
 }
 
 const file = (): string => join(app.getPath('userData'), 'settings.json')

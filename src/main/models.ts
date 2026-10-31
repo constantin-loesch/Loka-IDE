@@ -4,27 +4,16 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/p
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { cpus, totalmem } from 'node:os'
-import type { CatalogEntry, DownloadProgress, Fit, InstalledModel, ModelVariant } from '../shared/types'
+import type { CatalogEntry, DownloadProgress, InstalledModel, ModelVariant } from '../shared/types'
 import { CATALOG } from './catalog'
+import { assess, fallbackHardware } from './hardware'
+import { getHardware } from './llm'
 
 export { CATALOG }
 
 export const modelsDir = (): string => join(app.getPath('userData'), 'models')
 const importedListFile = (): string => join(app.getPath('userData'), 'imported-models.json')
 
-const GB = 1024 ** 3
-
-/**
- * Grobe Einschätzung, ob ein Modell in den Speicher passt.
- * Auf Apple Silicon teilen sich CPU und GPU den RAM; das System braucht selbst einige GB.
- */
-export function estimateFit(sizeBytes: number, totalBytes = totalmem()): Fit {
-  const needed = sizeBytes * 1.2 + 0.5 * GB // Gewichte + Kontext/KV-Cache
-  if (needed <= totalBytes - 3.5 * GB) return 'gut'
-  if (needed <= totalBytes - 1.5 * GB) return 'knapp'
-  return 'zu-gross'
-}
 
 async function readImported(): Promise<string[]> {
   try {
@@ -72,48 +61,19 @@ export async function listInstalled(): Promise<InstalledModel[]> {
   return result
 }
 
-/**
- * Speicherbandbreite in GB/s – sie bestimmt das Tempo: Pro Token müssen alle aktiven Gewichte
- * einmal aus dem Speicher gelesen werden. Grobe Werte für Apple Silicon.
- */
-function memoryBandwidth(): number {
-  const cpu = cpus()[0]?.model ?? ''
-  const table: [RegExp, number][] = [
-    [/M\d Ultra/, 800],
-    [/M4 Max/, 546],
-    [/M[1-3] Max/, 400],
-    [/M5 Max/, 600],
-    [/M4 Pro/, 273],
-    [/M[15] Pro/, 200],
-    [/M2 Pro/, 200],
-    [/M3 Pro/, 150],
-    [/M5/, 153],
-    [/M4/, 120],
-    [/M[23]/, 100],
-    [/M1/, 68]
-  ]
-  return table.find(([re]) => re.test(cpu))?.[1] ?? 50
-}
-
-/** Geschätzte Token pro Sekunde (≈ Wörter pro Sekunde) – null, wenn das Modell nicht passt. */
-function estimateSpeed(m: (typeof CATALOG)[number], v: ModelVariant, fit: Fit): number | null {
-  if (fit === 'zu-gross') return null
-  const activeBytes = v.sizeBytes * (m.activeParamsB / m.totalParamsB)
-  // In der Praxis erreicht man etwa 60 % der theoretischen Bandbreite
-  return Math.max(1, Math.round((memoryBandwidth() * 1e9 * 0.6) / activeBytes))
-}
-
 export async function getCatalog(): Promise<CatalogEntry[]> {
   const present = new Set(await readdir(modelsDir()).catch(() => [] as string[]))
+  const hw = await getHardware().catch(() => fallbackHardware())
   return CATALOG.map((m) => ({
     ...m,
     variants: m.variants.map((v) => {
-      const fit = estimateFit(v.sizeBytes)
+      const a = assess(v.sizeBytes, m.activeParamsB / m.totalParamsB, hw)
       return {
         ...v,
-        fit,
+        fit: a.fit,
+        fitNote: a.note,
         installed: v.files.every((f) => present.has(f.fileName)),
-        tokensPerSec: estimateSpeed(m, v, fit)
+        tokensPerSec: a.tokensPerSec
       }
     })
   }))

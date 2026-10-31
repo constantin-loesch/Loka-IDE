@@ -58,6 +58,11 @@ export default function App(): React.JSX.Element {
     return window.api.engine.onStatus(setStatus)
   }, [])
 
+  // Fenstertitel (unter Linux im Fensterrahmen sichtbar)
+  useEffect(() => {
+    document.title = root ? `${root.split('/').pop()} – Lokal IDE` : 'Lokal IDE'
+  }, [root])
+
   // Beim Start: zuletzt geöffneten Ordner und Dateien wiederherstellen
   useEffect(() => {
     void (async () => {
@@ -233,9 +238,12 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <div className="titlebar">
-        <span className="titlebar-name">{root ? root.split('/').pop() : 'Lokal IDE'}</span>
-      </div>
+      {/* Eigene Titelleiste nur auf dem Mac – unter Linux zeigt der normale Fensterrahmen den Titel */}
+      {window.api.platform === 'darwin' && (
+        <div className="titlebar">
+          <span className="titlebar-name">{root ? root.split('/').pop() : 'Lokal IDE'}</span>
+        </div>
+      )}
 
       <div className="workbench">
         <nav className="activitybar">

@@ -26,6 +26,9 @@ interface Message {
   parts?: Part[]
   /** Kurzer Hinweis, welcher Kontext mitgeschickt wurde */
   contextLabel?: string
+  /** Vom Agent in dieser Antwort geänderte Dateien (relativ zum Projekt) */
+  changed?: string[]
+  reverted?: boolean
   error?: string
 }
 
@@ -159,6 +162,7 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
 
     const res = await window.api.chat.send({ requestId, prompt, root, mode: effectiveMode })
     setApprovals([])
+    if (res.changed?.length) setMessages((prev) => prev.map((m) => (m.id === requestId ? { ...m, changed: res.changed } : m)))
     if (!res.ok) setMessages((prev) => prev.map((m) => (m.id === requestId ? { ...m, error: res.error } : m)))
     activeRequest.current = null
     setBusy(false)
@@ -268,6 +272,27 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
             )}
             {m.role === 'assistant' && !m.text && !m.error && busy && <span className="typing">●●●</span>}
             {m.error && <div className="error-box">{m.error}</div>}
+            {m.changed && m.changed.length > 0 && (
+              <div className="changes-bar">
+                <span className="muted">
+                  {m.reverted ? '↶ Rückgängig gemacht: ' : '✎ Geändert: '}
+                  {m.changed.join(', ')}
+                </span>
+                {!m.reverted && (
+                  <button
+                    className="link-btn"
+                    title="Stellt den Stand vor dieser Antwort wieder her (neu angelegte Dateien werden gelöscht)"
+                    onClick={async () => {
+                      if (!confirm(`Alle Änderungen dieser Antwort zurücknehmen?\n\n${m.changed!.join('\n')}\n\nSpätere Änderungen an diesen Dateien gehen dabei verloren.`)) return
+                      await window.api.agent.revert(m.id)
+                      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, reverted: true } : x)))
+                    }}
+                  >
+                    Rückgängig
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
         {approvals.map((req) => (

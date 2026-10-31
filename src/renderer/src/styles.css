@@ -1235,3 +1235,20 @@ section h2 {
   font-size: 12px;
   color: var(--accent);
 }
+.changes-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  font-size: 11px;
+}
+.changes-bar .muted {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

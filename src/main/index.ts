@@ -23,7 +23,8 @@ function createWindow(): void {
     minHeight: 600,
     title: 'Lokal IDE',
     backgroundColor: '#1e1f22',
-    titleBarStyle: 'hiddenInset',
+    // Auf dem Mac eigene Titelleiste mit den Ampel-Knöpfen, unter Linux/Windows der normale Fensterrahmen
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : { autoHideMenuBar: false }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -54,6 +55,7 @@ ipcMain.handle('system:info', (): SystemInfo => ({
   platform: platform(),
   modelsDir: models.modelsDir()
 }))
+ipcMain.handle('system:hardware', () => llm.getHardware())
 ipcMain.handle('system:revealModels', () => shell.openPath(models.modelsDir()))
 
 // ---------- Dateisystem ----------
@@ -91,6 +93,7 @@ ipcMain.handle('git:setIdentity', (_e, dir: string, name: string, email: string)
 ipcMain.handle('github:account', () => git.account())
 ipcMain.handle('github:connect', (_e, token: string) => git.connect(token))
 ipcMain.handle('github:disconnect', () => git.disconnect())
+ipcMain.handle('github:storage', () => git.credentialStorage())
 ipcMain.handle('github:publish', (_e, dir: string, name: string, isPrivate: boolean) => git.publish(dir, name, isPrivate))
 ipcMain.handle('shell:openUrl', (_e, url: string) => {
   // Nur Web-Links öffnen
@@ -149,19 +152,24 @@ ipcMain.handle('engine:load', (_e, path: string) => {
 ipcMain.handle('engine:unload', () => llm.unloadModel())
 ipcMain.handle('chat:send', async (_e, req: ChatRequest) => {
   try {
-    await llm.chat(req, {
+    const { changed } = await llm.chat(req, {
       onChunk: (chunk) => send('chat:chunk', chunk),
       onOpenFile: (file) => send('agent:openFile', file),
       onFileChanged: (path) => send('agent:fileChanged', path),
       onApproval: (approval) => send('agent:approval', approval)
     })
-    return { ok: true }
+    return { ok: true, changed }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 })
 ipcMain.handle('chat:stop', () => llm.stopChat())
 ipcMain.handle('agent:answer', (_e, answer: ApprovalAnswer) => agent.answerApproval(answer))
+ipcMain.handle('agent:revert', async (_e, requestId: string) => {
+  const restored = await agent.revertRequest(requestId)
+  for (const path of restored) send('agent:fileChanged', path)
+  return restored.length
+})
 ipcMain.handle('chat:reset', () => llm.resetChat())
 
 llm.onStatus((s) => send('engine:status', s))
@@ -169,13 +177,16 @@ llm.onStatus((s) => send('engine:status', s))
 // ---------- Menü ----------
 // Eigenes Menü, damit Cmd+W den aktiven Tab schließt statt des ganzen Fensters
 function buildMenu(): void {
+  const mac = process.platform === 'darwin'
   const template: Electron.MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    // Das App-Menü (Über, Beenden …) gibt es nur auf dem Mac; unter Linux steht „Beenden“ im Datei-Menü
+    ...(mac ? [{ role: 'appMenu' as const }] : []),
     {
       label: 'Datei',
       submenu: [
         { label: 'Tab schließen', accelerator: 'CmdOrCtrl+W', click: () => send('menu:closeTab', null) },
-        { label: 'Fenster schließen', accelerator: 'CmdOrCtrl+Shift+W', role: 'close' }
+        { label: 'Fenster schließen', accelerator: 'CmdOrCtrl+Shift+W', role: 'close' },
+        ...(mac ? [] : [{ type: 'separator' as const }, { label: 'Beenden', accelerator: 'Ctrl+Q', role: 'quit' as const }])
       ]
     },
     { role: 'editMenu' },
@@ -183,7 +194,7 @@ function buildMenu(): void {
     {
       label: 'Fenster',
       role: 'window',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
+      submenu: mac ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] : [{ role: 'minimize' }, { role: 'togglefullscreen' }]
     },
     {
       label: 'Hilfe',

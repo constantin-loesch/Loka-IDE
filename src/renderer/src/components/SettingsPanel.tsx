@@ -105,6 +105,17 @@ export default function SettingsPanel({ status }: Props): React.JSX.Element {
         <small>Wie viel Text sich das Modell merken kann. Mehr braucht mehr Arbeitsspeicher.</small>
       </label>
       <label className="settings-field">
+        <span>Grafik-Backend</span>
+        <select value={s.gpuBackend ?? 'auto'} onChange={(e) => set('gpuBackend', e.target.value as ModelSettings['gpuBackend'])}>
+          <option value="auto">Automatisch (empfohlen)</option>
+          <option value="metal">Metal – Apple Silicon</option>
+          <option value="cuda">CUDA – NVIDIA-Grafikkarten</option>
+          <option value="vulkan">Vulkan – AMD, Intel, NVIDIA</option>
+          <option value="cpu">Nur CPU</option>
+        </select>
+        <small>Automatisch nimmt das schnellste verfügbare. CUDA braucht unter Linux den NVIDIA-Treiber und CUDA 12.4+.</small>
+      </label>
+      <label className="settings-field">
         <span>GPU-Nutzung</span>
         <select
           value={String(s.gpuLayers)}

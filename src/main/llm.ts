@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ChatSessionModelFunctions, Llama, LlamaChatSession, LlamaContext, LlamaModel } from 'node-llama-cpp'
-import type { AgentOpenFile, ApprovalRequest, ChatChunk, ChatRequest, EngineStatus } from '../shared/types'
+import type { AgentOpenFile, ApprovalRequest, ChatChunk, ChatRequest, EngineStatus, GpuBackend, HardwareInfo } from '../shared/types'
+import { describeHardware } from './hardware'
 import * as agent from './agent'
 import * as tools from './agentTools'
 import { getSettings } from './settings'
@@ -23,7 +24,8 @@ Erkenne selbst, was gewollt ist:
   mit read_file, bevor du antwortest oder etwas änderst. Rate keine Dateiinhalte – schau nach.
 - Pfade sind immer relativ zum Projektordner. Mit open_file zeigst du dem Nutzer eine Stelle im Editor.
 Als Coding-Agent (wenn edit_file, write_file und run_command verfügbar sind):
-- Ändere nur, was für die Aufgabe nötig ist. Für kleine Änderungen edit_file, für neue Dateien write_file.
+- Ändere nur, was für die Aufgabe nötig ist. Für Änderungen replace_lines (mit Zeilennummern aus read_file) oder edit_file, für neue Dateien write_file.
+- Nach jedem Schreiben wird die Syntax geprüft. Meldet das Ergebnis einen SYNTAXFEHLER, behebe ihn sofort.
 - Prüfe deine Änderungen, z. B. mit Tests, Build oder Linter über run_command, und behebe Fehler.
 - Jede Änderung und jeder Befehl wird dem Nutzer zur Freigabe gezeigt. Lehnt er ab, respektiere das.
 - Führe nichts Destruktives aus (löschen, git push, Abhängigkeiten global installieren), außer der Nutzer bittet ausdrücklich darum.
@@ -66,12 +68,49 @@ export const onStatus = (l: StatusListener): (() => void) => {
   return () => listeners.delete(l)
 }
 
+/** Mit welchem Backend die aktuelle llama-Instanz erzeugt wurde */
+let llamaBackend: GpuBackend | null = null
+
+/**
+ * llama.cpp mit dem eingestellten Backend starten. „auto“ nimmt das beste verfügbare:
+ * Metal auf dem Mac, sonst CUDA (NVIDIA) oder Vulkan, notfalls CPU.
+ */
+async function ensureLlama(): Promise<Llama> {
+  const wanted = getSettings().gpuBackend ?? 'auto'
+  if (llama && llamaBackend === wanted) return llama
+  if (llama) {
+    await unloadModel()
+    await llama.dispose()
+    llama = null
+  }
+  const { getLlama } = await loadLib()
+  try {
+    llama = await getLlama(wanted === 'auto' ? undefined : { gpu: wanted === 'cpu' ? false : wanted })
+  } catch (err) {
+    if (wanted === 'auto') throw err
+    // Gewünschtes Backend nicht verfügbar (z. B. kein CUDA installiert) – lieber automatisch als gar nicht
+    console.warn(`Backend ${wanted} nicht verfügbar, nehme automatische Auswahl:`, err)
+    llama = await getLlama()
+  }
+  llamaBackend = wanted
+  return llama
+}
+
+/** Erkannte Hardware (startet dafür llama.cpp, falls nötig). */
+export async function getHardware(): Promise<HardwareInfo> {
+  const l = await ensureLlama()
+  const gpu = l.gpu === false ? 'cpu' : (l.gpu as HardwareInfo['gpu'])
+  const [names, vram] = await Promise.all([l.getGpuDeviceNames().catch(() => []), l.getVramState().catch(() => null)])
+  const unified = process.platform === 'darwin' || (vram?.unifiedSize ?? 0) > 0
+  return describeHardware(gpu, names, vram?.total ?? 0, unified)
+}
+
 export async function loadModel(modelPath: string): Promise<void> {
   await unloadModel()
   setStatus({ state: 'loading', modelPath, progress: 0 })
   try {
-    const { getLlama, LlamaChatSession } = await loadLib()
-    llama ??= await getLlama()
+    const { LlamaChatSession } = await loadLib()
+    const llama = await ensureLlama()
 
     const s = getSettings()
     model = await llama.loadModel({
@@ -85,6 +124,7 @@ export async function loadModel(modelPath: string): Promise<void> {
       flashAttention: s.flashAttention
     })
     session = new LlamaChatSession({ contextSequence: context.getSequence(), systemPrompt: systemPrompt() })
+    tools.setContextBudget(context.contextSize)
 
     setStatus({
       state: 'ready',
@@ -145,6 +185,12 @@ function unfinished(
   runner: ReturnType<typeof agent.makeRunner>,
   root: string
 ): { label: string; prompt: string } | null {
+  if (runner.syntaxErrors.size) {
+    return {
+      label: `Syntaxfehler in ${[...runner.syntaxErrors].join(', ')} – Modell soll ihn beheben`,
+      prompt: `In ${[...runner.syntaxErrors].join(', ')} ist noch ein Syntaxfehler. Lies die Datei mit read_file und behebe ihn mit replace_lines oder write_file.`
+    }
+  }
   if (runner.lastCommandFailed) {
     return {
       label: 'Letzter Befehl ist fehlgeschlagen – Modell soll das Problem beheben',
@@ -187,7 +233,7 @@ export interface ChatCallbacks {
   onApproval: (req: ApprovalRequest) => void
 }
 
-export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
+export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ changed: string[] }> {
   if (!session) throw new Error('Kein Modell geladen')
   const s = getSettings()
   const abort = new AbortController()
@@ -215,8 +261,13 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
   const functions = runner ? await nativeFunctions(runner, available) : undefined
 
   const announced = new Set<string>()
+  // Pro Modell-Antwort eigener Abbruch: stoppt, sobald das Modell nach einem Werkzeug-Aufruf weiterfantasiert
+  let turn = new AbortController()
+  let turnText = ''
   const options = {
-    signal: abort.signal,
+    get signal() {
+      return AbortSignal.any([abort.signal, turn.signal])
+    },
     stopOnAbortSignal: true,
     temperature: s.temperature,
     topP: s.topP,
@@ -237,7 +288,12 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
     },
     onResponseChunk: (chunk: { type?: string; segmentType?: string; text: string }) => {
       const kind = chunk.type === 'segment' && chunk.segmentType === 'thought' ? 'thought' : 'text'
-      if (chunk.text) emit(kind, chunk.text)
+      if (!chunk.text) return
+      emit(kind, chunk.text)
+      if (kind === 'text' && runner && !turn.signal.aborted) {
+        turnText += chunk.text
+        if (agent.continuesAfterCalls(turnText, available)) turn.abort()
+      }
     }
   }
 
@@ -250,9 +306,13 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
       overviewSentFor = req.root
       // Eine Übersicht vorab spart Suchschritte und verhindert, dass kleine Modelle Pfade raten
       const overview = await tools.listFiles(req.root, '.', 2).catch(() => '')
+      const testCmd = await tools.detectTestCommand(req.root)
       if (overview) {
         emit('tool', '📂 Projektübersicht')
-        prompt = `Projektstruktur (Auszug):\n${overview.slice(0, 3000)}\n\n${prompt}`
+        prompt =
+          `Projektstruktur (Auszug):\n${overview.slice(0, 3000)}\n` +
+          (testCmd ? `Tests dieses Projekts laufen mit: ${testCmd}\n` : '') +
+          `\n${prompt}`
       }
     }
     // Schleife für Modelle, die Werkzeuge als Text aufrufen (siehe parseToolCalls)
@@ -261,9 +321,11 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
     let repeatedFailures = 0
     for (;;) {
       announced.clear()
+      turn = new AbortController()
+      turnText = ''
       let answer: string
       try {
-        answer = await session.prompt(prompt, options)
+        answer = await session.prompt(prompt, { ...options, signal: options.signal })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         if (!/context/i.test(msg)) throw err
@@ -277,7 +339,7 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
 
       if (calls.length === 0) {
         // Das Modell will aufhören. Prüfen, ob die Aufgabe wirklich erledigt ist, und sonst (begrenzt oft) weitermachen lassen.
-        const reason = mode === 'agent' && !runner.exhausted && !runner.userRejected && nudges < 3 ? unfinished(answer, req.prompt, runner, req.root!) : null
+        const reason = mode === 'agent' && !runner.exhausted && !runner.userRejected && nudges < 5 ? unfinished(answer, req.prompt, runner, req.root!) : null
         if (reason) {
           nudges++
           emit('retract', '')
@@ -364,6 +426,7 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<void> {
   } finally {
     if (currentAbort === abort) currentAbort = null
   }
+  return { changed: runner ? [...runner.changed] : [] }
 }
 
 export function stopChat(): void {

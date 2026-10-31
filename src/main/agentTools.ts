@@ -5,8 +5,13 @@ import { mkdir, open, readdir, readFile, realpath, stat, writeFile } from 'node:
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { HIDDEN } from './files'
 
-/** Damit Werkzeug-Ergebnisse den Kontext des Modells nicht sprengen. */
-const MAX_OUTPUT_CHARS = 8000
+/** Damit Werkzeug-Ergebnisse den Kontext des Modells nicht sprengen – wird an die Kontextgröße angepasst. */
+let MAX_OUTPUT_CHARS = 8000
+
+/** Etwa 15 % des Kontexts pro Werkzeug-Ergebnis (≈ 4 Zeichen pro Token). */
+export function setContextBudget(contextTokens: number): void {
+  MAX_OUTPUT_CHARS = Math.round(Math.min(16000, Math.max(2500, contextTokens * 4 * 0.15)))
+}
 const MAX_SEARCH_FILE_BYTES = 1024 * 1024
 
 function clip(text: string): string {
@@ -260,6 +265,23 @@ function numbered(text: string, max = 120): string {
   return shown.join('\n') + (lines.length > max ? `\n… (${lines.length - max} weitere Zeilen)` : '')
 }
 
+/** Ersetzt die Zeilen start–end (1-basiert, inklusive) – einfacher für kleine Modelle als exakter Text. */
+export async function planReplaceLines(root: string, path: string, start: number, end: number, newText: string): Promise<PlannedWrite & { snippetBefore: string; snippetAfter: string }> {
+  const t = await writableTarget(root, path)
+  if (!t.exists) throw new Error(`Nicht gefunden: ${path}. Neue Dateien legst du mit write_file an.`)
+  const before = await readFile(t.abs, 'utf8')
+  const lines = before.split('\n')
+  if (!Number.isInteger(start) || start < 1 || start > lines.length + 1) {
+    throw new Error(`start_line ${start} liegt außerhalb der Datei (1–${lines.length}).\n\nAktueller Inhalt von ${t.rel}:\n${numbered(before)}`)
+  }
+  const last = Math.min(Math.max(end || start, start - 1), lines.length)
+  const removed = lines.slice(start - 1, last)
+  // Einen abschließenden Zeilenumbruch nicht verdoppeln
+  const inserted = newText === '' ? [] : newText.replace(/\n$/, '').split('\n')
+  const after = [...lines.slice(0, start - 1), ...inserted, ...lines.slice(last)].join('\n')
+  return { abs: t.abs, rel: t.rel, before, after, isNew: false, snippetBefore: removed.join('\n'), snippetAfter: inserted.join('\n') }
+}
+
 export async function applyWrite(plan: PlannedWrite): Promise<void> {
   await mkdir(dirname(plan.abs), { recursive: true })
   await writeFile(plan.abs, plan.after, 'utf8')
@@ -284,6 +306,59 @@ const DANGEROUS: [RegExp, string][] = [
   [/~\/|\$HOME|\.\.\/|\bcd\s+(\.\.|\/|~)/, 'Greift auf Pfade außerhalb des Projekts zu']
 ]
 
+// ---------- Syntaxprüfung nach dem Schreiben ----------
+
+function runCheck(cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  return new Promise((done) => {
+    execFile(cmd, args, { timeout: 15000, env }, (err, _out, stderr) => {
+      if (!err) return done(null)
+      // Programm nicht installiert → keine Aussage möglich
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return done(null)
+      done(String(stderr || err.message).trim().split('\n').slice(0, 12).join('\n'))
+    })
+  })
+}
+
+/**
+ * Schnelle Syntaxprüfung je nach Dateityp. Liefert eine Fehlermeldung oder null.
+ * Kleine Modelle machen oft Klammer- oder Einrückungsfehler – so merken sie es sofort.
+ */
+export async function syntaxCheck(abs: string): Promise<string | null> {
+  const ext = abs.slice(abs.lastIndexOf('.') + 1).toLowerCase()
+  if (ext === 'json') {
+    try {
+      JSON.parse(await readFile(abs, 'utf8'))
+      return null
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err)
+    }
+  }
+  const PATH = await userPath()
+  if (['js', 'mjs', 'cjs'].includes(ext)) {
+    // Electron kann sich wie Node verhalten – dann braucht es kein installiertes Node
+    return runCheck(process.execPath, ['--check', abs], { ...process.env, ELECTRON_RUN_AS_NODE: '1', PATH })
+  }
+  if (ext === 'py') return runCheck('python3', ['-m', 'py_compile', abs], { ...process.env, PATH })
+  if (ext === 'sh' || ext === 'bash') return runCheck('bash', ['-n', abs], { ...process.env, PATH })
+  return null
+}
+
+/** Welcher Befehl führt die Tests dieses Projekts aus? Für die Projektübersicht. */
+export async function detectTestCommand(root: string): Promise<string | null> {
+  const has = async (f: string): Promise<boolean> => !!(await stat(join(root, f)).catch(() => null))
+  try {
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+    if (pkg.scripts?.test && !/no test specified/.test(pkg.scripts.test)) return 'npm test'
+  } catch {
+    /* kein Node-Projekt */
+  }
+  if ((await has('pytest.ini')) || (await has('pyproject.toml')) || (await has('tests'))) return 'python3 -m pytest'
+  if (await has('Cargo.toml')) return 'cargo test'
+  if (await has('go.mod')) return 'go test ./...'
+  if (await has('Makefile')) return 'make test'
+  return null
+}
+
 export function dangerOf(command: string): string | undefined {
   return DANGEROUS.find(([re]) => re.test(command))?.[1]
 }
@@ -293,9 +368,11 @@ export function dangerOf(command: string): string | undefined {
  * Deshalb einmalig den PATH der Login-Shell des Nutzers ermitteln.
  */
 let shellPath: Promise<string> | null = null
+/** Login-Shell des Nutzers – macOS nutzt standardmäßig zsh, Linux meist bash */
+const defaultShell = (): string => process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
 function userPath(): Promise<string> {
   shellPath ??= new Promise((done) => {
-    const shell = process.env.SHELL || '/bin/zsh'
+    const shell = defaultShell()
     execFile(shell, ['-ilc', 'printf "__PATH__%s__END__" "$PATH"'], { timeout: 5000 }, (_err, stdout) => {
       const m = String(stdout ?? '').match(/__PATH__(.*)__END__/)
       done(m?.[1] || process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin')
@@ -320,7 +397,7 @@ export async function runCommand(
   const cwd = await realpath(root)
   const PATH = await userPath()
   return new Promise((done) => {
-    const shell = process.env.SHELL || '/bin/zsh'
+    const shell = defaultShell()
     // Eigene Prozessgruppe, damit beim Abbrechen auch Kindprozesse beendet werden
     const child = spawn(shell, ['-c', command], {
       cwd,

@@ -10,7 +10,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "app": "sh scripts/package-mac.sh"
+    "app": "sh scripts/package-mac.sh",
+    "app:linux": "sh scripts/package-linux.sh"
   },
   "dependencies": {
     "node-llama-cpp": "^3.22.2"
@@ -53,6 +54,13 @@
       "identity": null,
       "category": "public.app-category.developer-tools",
       "darkModeSupport": true
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Development",
+      "synopsis": "IDE mit eingebauter lokaler KI",
+      "description": "Code-Editor mit lokalem KI-Assistenten und Coding-Agent auf Basis von llama.cpp (Metal, CUDA, Vulkan, CPU).",
+      "artifactName": "Lokal-IDE-${version}-${arch}.${ext}"
     }
   }
 }

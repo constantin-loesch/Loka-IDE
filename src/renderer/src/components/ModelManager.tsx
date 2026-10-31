@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { CatalogEntry, DownloadProgress, EngineStatus, InstalledModel, SystemInfo, VariantEntry } from '../../../shared/types'
+import type { CatalogEntry, DownloadProgress, EngineStatus, HardwareInfo, InstalledModel, SystemInfo, VariantEntry } from '../../../shared/types'
 import { Icon } from './Icon'
 
 const fmtGB = (b: number): string => `${(b / 1e9).toFixed(1)} GB`
 
 const FIT_LABEL = { gut: 'Läuft flüssig', knapp: 'Knapp – andere Apps schließen', 'zu-gross': 'Zu groß für diesen Rechner' }
+
+const GPU_LABEL = { metal: 'Metal-GPU', cuda: 'CUDA (NVIDIA)', vulkan: 'Vulkan-GPU', cpu: 'nur CPU' }
 
 const SIZE_LABEL = {
   alle: 'Alle',
@@ -26,6 +28,7 @@ const bestFitting = (m: CatalogEntry): VariantEntry | undefined =>
 
 export default function ModelManager({ status }: { status: EngineStatus }): React.JSX.Element {
   const [info, setInfo] = useState<SystemInfo | null>(null)
+  const [hw, setHw] = useState<HardwareInfo | null>(null)
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
   const [installed, setInstalled] = useState<InstalledModel[]>([])
   const [downloads, setDownloads] = useState<Record<string, DownloadProgress>>({})
@@ -54,6 +57,7 @@ export default function ModelManager({ status }: { status: EngineStatus }): Reac
 
   useEffect(() => {
     window.api.system.info().then(setInfo)
+    window.api.system.hardware().then(setHw).catch(() => setHw(null))
     refresh()
     return window.api.models.onProgress((p) => {
       setDownloads((d) => {
@@ -90,7 +94,15 @@ export default function ModelManager({ status }: { status: EngineStatus }): Reac
             {info && (
               <>
                 {' '}
-                Dein System: <strong>{info.cpu}</strong>, <strong>{Math.round(info.totalMemBytes / 1024 ** 3)} GB RAM</strong>.
+                Dein System: <strong>{info.cpu}</strong>, <strong>{Math.round(info.totalMemBytes / 1024 ** 3)} GB RAM</strong>
+                {hw && (
+                  <>
+                    {', '}
+                    <strong>{GPU_LABEL[hw.gpu]}</strong>
+                    {hw.gpuNames.length > 0 && !hw.unifiedMemory && ` (${hw.gpuNames.join(', ')}, ${Math.round(hw.vramBytes / 1024 ** 3)} GB VRAM)`}
+                  </>
+                )}
+                .
               </>
             )}
           </p>
@@ -237,7 +249,9 @@ function ModelCard({
       <div className="muted small">{v.label}</div>
 
       <div className="card-facts">
-        <span className={`fit fit-${v.fit}`}>{FIT_LABEL[v.fit]}</span>
+        <span className={`fit fit-${v.fit}`} title={v.fitNote}>
+          {v.fitNote ? 'Teilweise auf CPU' : FIT_LABEL[v.fit]}
+        </span>
         {v.tokensPerSec !== null && <span className="speed" title="Grobe Schätzung aus Speicherbandbreite und Modellgröße">≈ {v.tokensPerSec} Wörter/s</span>}
       </div>
       <div className={`license ${m.license.commercial ? '' : 'restricted'}`} title={m.license.note}>

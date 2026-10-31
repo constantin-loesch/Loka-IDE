@@ -52,6 +52,8 @@ export interface VariantEntry extends ModelVariant {
   installed: boolean
   /** Grobe Schätzung für diesen Rechner, null wenn das Modell nicht in den Speicher passt */
   tokensPerSec: number | null
+  /** Zusätzlicher Hinweis, z. B. „läuft teilweise auf der CPU“ */
+  fitNote?: string
 }
 
 export interface CatalogEntry extends Omit<CatalogModel, 'variants'> {
@@ -74,6 +76,25 @@ export interface DownloadProgress {
   done: boolean
   error?: string
 }
+
+/** Erkannte Hardware – bestimmt, welche Modelle passen und wie schnell sie laufen. */
+export interface HardwareInfo {
+  platform: string
+  cpu: string
+  ramBytes: number
+  /** Womit llama.cpp rechnet */
+  gpu: 'metal' | 'cuda' | 'vulkan' | 'cpu'
+  gpuNames: string[]
+  /** Grafikspeicher (bei Apple Silicon: gemeinsamer Speicher) */
+  vramBytes: number
+  /** Apple Silicon: CPU und GPU teilen sich den Arbeitsspeicher */
+  unifiedMemory: boolean
+  /** Speicherbandbreite des Rechenwerks in GB/s */
+  bandwidthGBs: number
+  ramBandwidthGBs: number
+}
+
+export type GpuBackend = 'auto' | 'metal' | 'cuda' | 'vulkan' | 'cpu'
 
 export interface SystemInfo {
   totalMemBytes: number
@@ -176,9 +197,11 @@ export interface ModelSettings {
   contextSize: number
   gpuLayers: 'auto' | 'max' | number
   flashAttention: boolean
+  /** Rechen-Backend von llama.cpp: Metal (Mac), CUDA (NVIDIA), Vulkan (AMD/Intel/NVIDIA) oder nur CPU */
+  gpuBackend: GpuBackend
 }
 
-export const LOAD_SETTINGS: (keyof ModelSettings)[] = ['contextSize', 'gpuLayers', 'flashAttention']
+export const LOAD_SETTINGS: (keyof ModelSettings)[] = ['contextSize', 'gpuLayers', 'flashAttention', 'gpuBackend']
 
 export interface DirEntry {
   name: string

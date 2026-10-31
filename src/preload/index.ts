@@ -10,6 +10,7 @@ import type {
   DownloadProgress,
   GitHubAccount,
   GitStatus,
+  HardwareInfo,
   EngineStatus,
   InstalledModel,
   ModelSettings,
@@ -26,8 +27,11 @@ function on<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 const api = {
+  /** 'darwin', 'linux' oder 'win32' */
+  platform: process.platform,
   system: {
     info: (): Promise<SystemInfo> => ipcRenderer.invoke('system:info'),
+    hardware: (): Promise<HardwareInfo> => ipcRenderer.invoke('system:hardware'),
     revealModels: (): Promise<void> => ipcRenderer.invoke('system:revealModels')
   },
   fs: {
@@ -68,6 +72,8 @@ const api = {
     account: (): Promise<GitHubAccount | null> => ipcRenderer.invoke('github:account'),
     connect: (token: string): Promise<GitHubAccount> => ipcRenderer.invoke('github:connect', token),
     disconnect: (): Promise<void> => ipcRenderer.invoke('github:disconnect'),
+    /** Wo der Token gespeichert wird (Schlüsselbund, Datei …) */
+    storage: (): Promise<string> => ipcRenderer.invoke('github:storage'),
     publish: (dir: string, name: string, isPrivate: boolean): Promise<string> =>
       ipcRenderer.invoke('github:publish', dir, name, isPrivate)
   },
@@ -81,7 +87,9 @@ const api = {
     onOpenFile: (cb: (f: AgentOpenFile) => void) => on('agent:openFile', cb),
     onFileChanged: (cb: (path: string) => void) => on('agent:fileChanged', cb),
     onApproval: (cb: (req: ApprovalRequest) => void) => on('agent:approval', cb),
-    answer: (a: ApprovalAnswer): Promise<void> => ipcRenderer.invoke('agent:answer', a)
+    answer: (a: ApprovalAnswer): Promise<void> => ipcRenderer.invoke('agent:answer', a),
+    /** Alle Dateiänderungen einer Antwort zurücknehmen; liefert die Anzahl der Dateien */
+    revert: (requestId: string): Promise<number> => ipcRenderer.invoke('agent:revert', requestId)
   },
   session: {
     get: (): Promise<unknown> => ipcRenderer.invoke('session:get'),
@@ -91,7 +99,7 @@ const api = {
     onCloseTab: (cb: () => void) => on('menu:closeTab', cb)
   },
   chat: {
-    send: (req: ChatRequest): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('chat:send', req),
+    send: (req: ChatRequest): Promise<{ ok: boolean; error?: string; changed?: string[] }> => ipcRenderer.invoke('chat:send', req),
     stop: (): Promise<void> => ipcRenderer.invoke('chat:stop'),
     reset: (): Promise<void> => ipcRenderer.invoke('chat:reset'),
     onChunk: (cb: (c: ChatChunk) => void) => on('chat:chunk', cb)

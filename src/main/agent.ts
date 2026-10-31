@@ -1,6 +1,7 @@
 // Werkzeuge des Modells und die Freigabe-Regeln für alles, was etwas verändert.
 import { randomUUID } from 'node:crypto'
 import type { AgentOpenFile, ApprovalAnswer, ApprovalRequest, ChatMode } from '../shared/types'
+import { rm, writeFile } from 'node:fs/promises'
 import * as tools from './agentTools'
 import { getSettings } from './settings'
 
@@ -71,6 +72,64 @@ async function approve(ctx: AgentContext, req: Omit<ApprovalRequest, 'id' | 'req
   })
   if (answer.approved && answer.always && !req.danger) allowedForChat.add(kind)
   return answer
+}
+
+// ---------- Sicherungen für „Rückgängig“ ----------
+
+/** Pro Chat-Anfrage der ursprüngliche Inhalt jeder geänderten Datei (null = Datei war neu). */
+const backups = new Map<string, Map<string, string | null>>()
+
+function rememberOriginal(requestId: string, abs: string, before: string, isNew: boolean): void {
+  let files = backups.get(requestId)
+  if (!files) {
+    files = new Map()
+    backups.set(requestId, files)
+    // Nur die letzten 30 Antworten aufheben
+    if (backups.size > 30) backups.delete(backups.keys().next().value!)
+  }
+  // Nur den Stand VOR der ersten Änderung merken
+  if (!files.has(abs)) files.set(abs, isNew ? null : before)
+}
+
+/** Stellt alle Dateien wieder her, die eine Antwort geändert hat. Liefert die Pfade. */
+export async function revertRequest(requestId: string): Promise<string[]> {
+  const files = backups.get(requestId)
+  if (!files) return []
+  const restored: string[] = []
+  for (const [abs, original] of files) {
+    if (original === null) await rm(abs, { force: true })
+    else await writeFile(abs, original, 'utf8')
+    restored.push(abs)
+  }
+  backups.delete(requestId)
+  return restored
+}
+
+/** Namen von Funktionen, Klassen, Konstanten und Exporten – um versehentlich Gelöschtes zu erkennen. */
+function definedNames(code: string): Set<string> {
+  const names = new Set<string>()
+  const re = /\b(?:function\s*\*?|def|class|const|let|var|fn|func)\s+([A-Za-z_$][\w$]*)|\b(module\.exports|export\s+default)\b/g
+  for (const m of code.matchAll(re)) names.add(m[1] ?? m[2].replace(/\s+/, ' '))
+  return names
+}
+
+/** Schreibt eine freigegebene Änderung, sichert den alten Stand und prüft die Syntax. */
+async function commitWrite(ctx: AgentContext, plan: tools.PlannedWrite, done: string): Promise<string> {
+  rememberOriginal(ctx.requestId, plan.abs, plan.before, plan.isNew)
+  await tools.applyWrite(plan)
+  ctx.fileChanged(plan.abs)
+  // Kleine Modelle schreiben Dateien gern neu und vergessen dabei Teile
+  if (!plan.isNew) {
+    const after = definedNames(plan.after)
+    const lost = [...definedNames(plan.before)].filter((n) => !after.has(n))
+    if (lost.length) done += `\n⚠ Achtung: Diese Definitionen gab es vorher, jetzt fehlen sie: ${lost.join(', ')}. Falls das nicht gewollt war, stelle sie wieder her.`
+  }
+  const syntax = await tools.syntaxCheck(plan.abs)
+  if (syntax) {
+    ctx.reportResult(`Syntaxfehler in ${plan.rel}:\n${syntax}`)
+    return `${done}\n⚠ SYNTAXFEHLER in ${plan.rel} – bitte sofort beheben:\n${syntax}`
+  }
+  return `${done} Syntaxprüfung: OK.`
 }
 
 const rejected = (a: ApprovalAnswer): string =>
@@ -158,9 +217,27 @@ export const TOOLS: Record<string, Tool> = {
         after: plan.snippetAfter
       })
       if (!a.approved) return rejected(a)
-      await tools.applyWrite(plan)
-      ctx.fileChanged(plan.abs)
-      return `${plan.rel} wurde geändert.`
+      return commitWrite(ctx, plan, `${plan.rel} wurde geändert.`)
+    }
+  },
+  replace_lines: {
+    mode: 'agent',
+    description:
+      'Ersetzt in einer bestehenden Datei die Zeilen start_line bis end_line (laut read_file, inklusive) durch new_text. ' +
+      'Oft einfacher als edit_file. Leerer new_text löscht die Zeilen. Zum Einfügen ohne Löschen: end_line = start_line - 1.',
+    params: {
+      path: { type: 'string', description: 'Datei relativ zum Projekt' },
+      start_line: { type: 'integer' },
+      end_line: { type: 'integer' },
+      new_text: { type: 'string', description: 'Neuer Text für diese Zeilen' }
+    },
+    defaults: { path: '', start_line: 0, end_line: 0, new_text: '' },
+    label: (p) => `✏️ Ändert ${p.path} (Zeile ${p.start_line}–${p.end_line})`,
+    run: async (ctx, p) => {
+      const plan = await tools.planReplaceLines(ctx.root, String(p.path), Number(p.start_line), Number(p.end_line), String(p.new_text))
+      const a = await approve(ctx, { kind: 'edit', path: plan.abs, relPath: plan.rel, before: plan.snippetBefore, after: plan.snippetAfter })
+      if (!a.approved) return rejected(a)
+      return commitWrite(ctx, plan, `${plan.rel}: Zeilen ${p.start_line}–${p.end_line} ersetzt.`)
     }
   },
   write_file: {
@@ -184,9 +261,7 @@ export const TOOLS: Record<string, Tool> = {
         isNew: plan.isNew
       })
       if (!a.approved) return rejected(a)
-      await tools.applyWrite(plan)
-      ctx.fileChanged(plan.abs)
-      return plan.isNew ? `${plan.rel} wurde angelegt.` : `${plan.rel} wurde überschrieben.`
+      return commitWrite(ctx, plan, plan.isNew ? `${plan.rel} wurde angelegt.` : `${plan.rel} wurde überschrieben.`)
     }
   },
   run_command: {
@@ -196,7 +271,7 @@ export const TOOLS: Record<string, Tool> = {
       'Keine interaktiven Befehle und keine dauerhaft laufenden Prozesse wie Dev-Server.',
     params: { command: { type: 'string', description: 'Shell-Befehl, z. B. "npm test"' } },
     defaults: { command: '' },
-    label: (p) => `▶ ${p.command}`,
+    label: (p) => `$ ${p.command}`,
     run: async (ctx, p) => {
       const command = String(p.command).trim()
       if (!command) return 'Fehler: Kein Befehl angegeben.'
@@ -242,6 +317,8 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
   /** Ist der zuletzt ausgeführte Befehl fehlgeschlagen? */
   let lastCommandFailed = false
   let commandsRun = 0
+  /** Dateien, in denen die letzte Schreibaktion einen Syntaxfehler hinterlassen hat */
+  const syntaxErrors = new Set<string>()
 
   const withDefaults = (tool: Tool, raw: Params): Params => {
     // Fehlende oder leere Parameter mit Standardwerten auffüllen
@@ -253,7 +330,7 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
   }
   const signature = (name: string, p: Params): string =>
     // Schreiben mit gleichem Inhalt ist immer sinnlos, Lesen/Befehle erst nach einer Änderung wieder
-    name === 'write_file' || name === 'edit_file' ? `${name}:${JSON.stringify(p)}` : `${name}:${version}:${JSON.stringify(p)}`
+    name === 'write_file' || name === 'edit_file' || name === 'replace_lines' ? `${name}:${JSON.stringify(p)}` : `${name}:${version}:${JSON.stringify(p)}`
 
   return {
     get exhausted() {
@@ -271,6 +348,7 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
     get commandsRun() {
       return commandsRun
     },
+    syntaxErrors,
     /** Wurde genau dieser Aufruf schon erfolgreich ausgeführt (ohne dass sich seitdem etwas geändert hat)? */
     seen(name: string, raw: Params): boolean {
       const tool = available[name]
@@ -292,7 +370,9 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
         if (failed(result)) failedCalls.set(signature(name, p), result)
         else {
           done.add(signature(name, p))
-          if (name === 'write_file' || name === 'edit_file') {
+          if (name === 'write_file' || name === 'edit_file' || name === 'replace_lines') {
+            if (result.includes('SYNTAXFEHLER')) syntaxErrors.add(String(p.path))
+            else syntaxErrors.delete(String(p.path))
             changed.add(String(p.path))
             version++
             log.push(result)
@@ -445,6 +525,20 @@ class Lenient {
   }
 }
 
+/**
+ * Schreibt das Modell nach seinen Werkzeug-Aufrufen schon weiter – meist erfundene „Ergebnisse“?
+ * Dann sollte die Generierung gestoppt und erst einmal wirklich ausgeführt werden.
+ */
+export function continuesAfterCalls(text: string, available: Record<string, Tool>): boolean {
+  const calls = parseToolCalls(text, available)
+  if (!calls.length) return false
+  const rest = text.slice(calls[calls.length - 1].end)
+  // Erlaubt: Code-Zaun, </tool_call>, Leerraum – und der Anfang eines weiteren Aufrufs
+  const cleaned = rest.replace(/```\w*|<\/?tool_call>|\s/g, '')
+  if (!cleaned || cleaned.startsWith('{')) return false
+  return cleaned.length > 3
+}
+
 /** Eine Werkzeug-Beschreibung (Schema) statt eines Aufrufs? */
 function isDefinition(obj: Record<string, any>): boolean {
   if (obj.type === 'function' && typeof obj.function === 'object') return true
@@ -453,8 +547,8 @@ function isDefinition(obj: Record<string, any>): boolean {
 }
 
 /** Alle Werkzeug-Aufrufe in einer Antwort, in der Reihenfolge, in der sie dort stehen. */
-export function parseToolCalls(text: string, available: Record<string, Tool>): { name: string; args: Params }[] {
-  const calls: { name: string; args: Params }[] = []
+export function parseToolCalls(text: string, available: Record<string, Tool>): { name: string; args: Params; end: number }[] {
+  const calls: { name: string; args: Params; end: number }[] = []
   // Manche Modelle kopieren die Werkzeug-Beschreibungen aus ihrer Anleitung in die Antwort – die sind keine Aufrufe
   text = text.replace(/<tools>[\s\S]*?<\/tools>/g, (m) => ' '.repeat(m.length))
   let pos = 0
@@ -469,7 +563,7 @@ export function parseToolCalls(text: string, available: Record<string, Tool>): {
     if (parsed && typeof name === 'string' && available[name]) {
       let args = obj!.arguments ?? obj!.parameters ?? obj!.args ?? {}
       if (typeof args === 'string') args = (Lenient.parseAt(args, args.indexOf('{'))?.value as Params) ?? {}
-      calls.push({ name, args })
+      calls.push({ name, args, end: parsed.end })
       pos = parsed.end
     } else pos++
   }

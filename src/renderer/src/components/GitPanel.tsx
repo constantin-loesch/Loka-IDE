@@ -285,6 +285,10 @@ function GitHubSection({
   const [isPrivate, setIsPrivate] = useState(true)
   const [editRemote, setEditRemote] = useState(false)
   const [remoteInput, setRemoteInput] = useState('')
+  const [storage, setStorage] = useState('')
+  useEffect(() => {
+    window.api.github.storage().then(setStorage).catch(() => setStorage(''))
+  }, [])
 
   const connect = (): Promise<boolean> =>
     run('Verbinde mit GitHub', async () => {
@@ -325,7 +329,7 @@ function GitHubSection({
       ) : (
         <div className="git-box">
           <p>
-            Verbinde dein GitHub-Konto mit einem Zugangs-Token. Er wird nur im macOS-Schlüsselbund gespeichert.
+            Verbinde dein GitHub-Konto mit einem Zugangs-Token. Er wird {storage || 'im Schlüsselbund des Systems'} gespeichert.
           </p>
           <ol>
             <li>

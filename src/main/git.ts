@@ -1,5 +1,6 @@
 // Git- und GitHub-Funktionen für das Quellcode-Panel.
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { GitFile, GitFileStatus, GitHubAccount, GitStatus } from '../shared/types'
 
@@ -139,7 +140,7 @@ export async function setIdentity(dir: string, name: string, email: string): Pro
 }
 
 // ---------- GitHub ----------
-// Der Token liegt nur im macOS-Schlüsselbund (über den Credential-Helper von Git).
+// Der Token liegt im Schlüsselbund des Systems (über den Credential-Helper von Git).
 
 const CRED = 'protocol=https\nhost=github.com\n'
 
@@ -185,12 +186,38 @@ export async function account(): Promise<GitHubAccount | null> {
   }
 }
 
+/**
+ * Ohne Credential-Helper kann Git den Token nicht speichern. Auf dem Mac gibt es den Schlüsselbund,
+ * unter Linux den Gnome-/KDE-Schlüsselbund über libsecret – fehlt der, nimmt Git eine Datei.
+ */
+async function ensureCredentialHelper(cwd: string): Promise<void> {
+  const current = (await tryGit(cwd, ['config', '--get', 'credential.helper']))?.trim()
+  if (current) return
+  if (process.platform === 'darwin') {
+    await git(cwd, ['config', '--global', 'credential.helper', 'osxkeychain'])
+    return
+  }
+  const execPath = (await tryGit(cwd, ['--exec-path']))?.trim()
+  const libsecret = execPath && existsSync(join(execPath, 'git-credential-libsecret'))
+  await git(cwd, ['config', '--global', 'credential.helper', libsecret ? 'libsecret' : 'store'])
+}
+
+/** Wo der Token gespeichert wird – für den Hinweis in der Oberfläche */
+export async function credentialStorage(): Promise<string> {
+  const helper = (await tryGit(process.cwd(), ['config', '--get', 'credential.helper']))?.trim()
+  if (helper === 'osxkeychain' || (!helper && process.platform === 'darwin')) return 'im macOS-Schlüsselbund'
+  if (helper === 'libsecret') return 'im Schlüsselbund deines Linux-Desktops (libsecret)'
+  if (helper === 'store' || !helper) return 'in der Datei ~/.git-credentials (unverschlüsselt – installiere libsecret für mehr Sicherheit)'
+  return `über den Git-Credential-Helper „${helper}“`
+}
+
 export async function connect(token: string): Promise<GitHubAccount> {
   token = token.trim()
   const user = await api<GhUser>(token, '/user').catch(() => {
     throw new Error('Der Token ist ungültig oder abgelaufen.')
   })
   const cwd = process.cwd()
+  await ensureCredentialHelper(cwd)
   // Alten Eintrag ersetzen, dann den neuen im Schlüsselbund speichern
   await git(cwd, ['credential', 'reject'], CRED + '\n').catch(() => undefined)
   await git(cwd, ['credential', 'approve'], `${CRED}username=${user.login}\npassword=${token}\n\n`)
