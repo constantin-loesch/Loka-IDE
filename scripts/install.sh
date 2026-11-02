@@ -58,11 +58,24 @@ if ! node_ok; then
 fi
 say "Node.js $(node -v)"
 
+JETSON=""
 if [ "$OS" = "Linux" ]; then
   # node-pty (Terminal) wird unter Linux aus dem Quellcode gebaut
   for tool in python3 make g++; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool fehlt (für das Terminal). Debian/Ubuntu: sudo apt install build-essential python3"
   done
+  # NVIDIA Jetson: llama.cpp wird mit CUDA gebaut (scripts/build-llama-cuda.sh) – dafür braucht es nvcc
+  JMODEL="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)"
+  if [ -f /etc/nv_tegra_release ] || echo "$JMODEL" | grep -qi jetson; then
+    JETSON=1
+    say "Erkannt: ${JMODEL:-NVIDIA Jetson} ($(awk '/MemTotal/ {printf "%.0f GB", $2/1048576}' /proc/meminfo) gemeinsamer Speicher)"
+    if [ -x /usr/local/cuda/bin/nvcc ] || command -v nvcc >/dev/null 2>&1; then
+      say "CUDA gefunden – die KI wird für die GPU gebaut"
+    else
+      printf '\033[1;33mHinweis:\033[0m CUDA-Toolkit fehlt – ohne läuft die KI nur auf der CPU.\n'
+      printf '         Installieren mit: sudo apt install nvidia-jetpack   (dann dieses Skript erneut starten)\n'
+    fi
+  fi
 fi
 
 # ---------- Quellcode holen oder aktualisieren ----------
@@ -104,6 +117,12 @@ Type=Application
 Categories=Development;IDE;
 EOF
     say "Fertig! Starten mit: lokal-ide (oder über das App-Menü)"
+    if [ -n "$JETSON" ]; then
+      echo ""
+      say "Tipp für maximales KI-Tempo auf dem Jetson (volle Leistung, Takt hoch):"
+      echo "    sudo nvpmodel -m 0      # Leistungsmodus MAXN (bleibt nach Neustart)"
+      echo "    sudo jetson_clocks      # Takt fest auf Maximum (bis zum nächsten Neustart)"
+    fi
     ;;
   *)
     fail "Nicht unterstütztes System: $OS (nur macOS und Linux)"

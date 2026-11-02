@@ -1,6 +1,7 @@
 // Hardware-Einschätzung: Passt ein Modell in den Speicher und wie schnell läuft es ungefähr?
 // Faustregel: Pro erzeugtem Wort müssen alle aktiven Gewichte einmal aus dem Speicher gelesen werden –
 // das Tempo hängt also vor allem an der Speicherbandbreite.
+import { readFileSync } from 'node:fs'
 import { cpus, platform, totalmem } from 'node:os'
 import type { Fit, HardwareInfo } from '../shared/types'
 
@@ -69,10 +70,72 @@ function ramBandwidth(cpu: string): number {
   return 60
 }
 
+/**
+ * NVIDIA Jetson: CPU und GPU teilen sich den Arbeitsspeicher (wie bei Apple Silicon).
+ * Das Modell steht in /proc/device-tree/model, z. B. „NVIDIA Jetson AGX Orin Developer Kit“.
+ */
+export interface JetsonInfo {
+  model: string
+  /** Speicherbandbreite in GB/s (Herstellerangabe) */
+  bandwidthGBs: number
+}
+
+let jetsonCache: JetsonInfo | null | undefined
+export function jetson(): JetsonInfo | null {
+  if (jetsonCache !== undefined) return jetsonCache
+  jetsonCache = null
+  if (platform() !== 'linux') return null
+  let model = ''
+  try {
+    model = readFileSync('/proc/device-tree/model', 'utf8').replace(/\0/g, '').trim()
+  } catch {
+    /* kein Device-Tree – kein Jetson */
+  }
+  let tegra = false
+  try {
+    tegra = readFileSync('/etc/nv_tegra_release', 'utf8').length > 0
+  } catch {
+    /* fehlt */
+  }
+  if (!/jetson/i.test(model) && !tegra) return null
+  const ramGB = totalmem() / GB
+  const table: [RegExp, number][] = [
+    [/Thor/i, 273],
+    [/AGX Orin/i, 204.8],
+    [/Orin NX/i, 102.4],
+    [/Orin Nano/i, ramGB < 6 ? 34 : 68],
+    [/AGX Xavier/i, 136.5],
+    [/Xavier NX/i, 59.7],
+    [/TX2/i, 59.7],
+    [/Nano/i, 25.6]
+  ]
+  const bw = table.find(([re]) => re.test(model))?.[1] ?? 100
+  jetsonCache = { model: model || 'NVIDIA Jetson', bandwidthGBs: bw }
+  return jetsonCache
+}
+
 export function describeHardware(gpu: HardwareInfo['gpu'], gpuNames: string[], vramBytes: number, unified: boolean): HardwareInfo {
   const cpu = cpus()[0]?.model?.trim() ?? 'unbekannt'
-  const ram = ramBandwidth(cpu)
   const name = gpuNames.join(', ')
+  const j = jetson()
+  if (j) {
+    // Gemeinsamer Speicher: Bandbreite gilt für CPU und GPU gleichermaßen
+    return {
+      platform: platform(),
+      cpu: `${j.model} (${cpu})`,
+      ramBytes: totalmem(),
+      gpu,
+      gpuNames: gpuNames.length ? gpuNames : [j.model],
+      vramBytes,
+      unifiedMemory: true,
+      bandwidthGBs: j.bandwidthGBs,
+      ramBandwidthGBs: j.bandwidthGBs
+    }
+  }
+  // DGX Spark (GB10) teilt den Speicher ebenfalls
+  const spark = /GB10|DGX Spark/i.test(name)
+  if (spark) unified = true
+  const ram = spark ? 273 : ramBandwidth(cpu)
   const gpuBw = unified ? ram : (GPU_BANDWIDTH.find(([re]) => re.test(name))?.[1] ?? 300)
   return {
     platform: platform(),
@@ -90,7 +153,7 @@ export function describeHardware(gpu: HardwareInfo['gpu'], gpuNames: string[], v
 /** Ersatz, solange llama.cpp noch nicht initialisiert ist (oder fehlschlägt). */
 export function fallbackHardware(): HardwareInfo {
   const mac = platform() === 'darwin'
-  return describeHardware(mac ? 'metal' : 'cpu', [], 0, mac)
+  return describeHardware(mac ? 'metal' : 'cpu', [], 0, mac || !!jetson())
 }
 
 export interface Assessment {

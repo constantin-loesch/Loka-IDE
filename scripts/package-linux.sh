@@ -8,6 +8,8 @@ set -e
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 
 node scripts/licenses.mjs
+# Jetson / ARM64 mit NVIDIA-GPU: llama.cpp mit CUDA bauen (macht sonst nichts)
+sh scripts/build-llama-cuda.sh
 electron-vite build
 case "$(uname -m)" in
   aarch64 | arm64) ARCH=--arm64 ;;

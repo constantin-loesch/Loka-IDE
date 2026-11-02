@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ChatSessionModelFunctions, Llama, LlamaChatSession, LlamaContext, LlamaModel } from 'node-llama-cpp'
@@ -68,6 +69,13 @@ export const onStatus = (l: StatusListener): (() => void) => {
   return () => listeners.delete(l)
 }
 
+/** Gibt es einen mit scripts/build-llama-cuda.sh gebauten llama.cpp? (nur Linux) */
+function hasLocalCudaBuild(): boolean {
+  if (process.platform !== 'linux') return false
+  const dir = join(app.getAppPath(), 'node_modules', 'node-llama-cpp', 'llama').replace('app.asar', 'app.asar.unpacked')
+  return existsSync(join(dir, 'lastBuild.json')) && existsSync(join(dir, 'localBuilds'))
+}
+
 /** Mit welchem Backend die aktuelle llama-Instanz erzeugt wurde */
 let llamaBackend: GpuBackend | null = null
 
@@ -84,6 +92,20 @@ async function ensureLlama(): Promise<Llama> {
     llama = null
   }
   const { getLlama } = await loadLib()
+  // Selbst gebautes llama.cpp mit CUDA (Jetson, DGX Spark – siehe scripts/build-llama-cuda.sh) bevorzugen
+  if ((wanted === 'auto' || wanted === 'cuda') && hasLocalCudaBuild()) {
+    try {
+      const local = await getLlama('lastBuild')
+      if (local.gpu === 'cuda') {
+        llama = local
+        llamaBackend = wanted
+        return local
+      }
+      await local.dispose()
+    } catch (err) {
+      console.warn('Lokaler CUDA-Build lässt sich nicht laden, nehme die fertigen Bausteine:', err)
+    }
+  }
   try {
     llama = await getLlama(wanted === 'auto' ? undefined : { gpu: wanted === 'cpu' ? false : wanted })
   } catch (err) {

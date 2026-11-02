@@ -173,7 +173,12 @@ npm run dev
 - Ohne passende GPU läuft alles auf der CPU. Das Backend lässt sich in den Modell-Einstellungen festlegen.
 - GitHub-Token landen im Schlüsselbund (libsecret); ist der nicht installiert, in `~/.git-credentials`.
 
-**NVIDIA Jetson / ARM64:** Installation und Build laufen auch auf ARM64 (z. B. Jetson Orin mit JetPack 5/6). Die KI rechnet dort mit den fertigen llama.cpp-Bausteinen auf der **CPU** – für die Jetson-GPU (CUDA) gibt es keine fertigen ARM64-Binärdateien; dafür müsste llama.cpp selbst gebaut werden (`npx --no node-llama-cpp source download --gpu cuda` im Quellordner). JetPack 4 (Ubuntu 18.04) ist für Node.js 22 zu alt.
+**NVIDIA Jetson (Orin, Xavier, Thor) und DGX Spark:** Das Installationsskript erkennt das Gerät und baut llama.cpp einmalig **mit CUDA für genau diese GPU** (dauert 10–40 Minuten, [`scripts/build-llama-cuda.sh`](scripts/build-llama-cuda.sh)). Die App erkennt den **gemeinsamen Speicher** – auf einem AGX Orin mit 64 GB stehen also die vollen 64 GB für Modelle bereit, mit realistischer Tempo-Schätzung (204,8 GB/s Bandbreite). Flash Attention ist dort standardmäßig an.
+
+- Voraussetzung: CUDA-Toolkit aus JetPack (`sudo apt install nvidia-jetpack`), JetPack 5 oder 6. JetPack 4 (Ubuntu 18.04) ist für Node.js 22 zu alt.
+- Für volle Leistung: `sudo nvpmodel -m 0` (Leistungsmodus MAXN) und `sudo jetson_clocks`.
+- Der CUDA-Build wird bei Updates nur wiederholt, wenn sich die llama.cpp-Version ändert. Von Hand neu bauen: `LOKAL_IDE_CUDA_REBUILD=1 sh scripts/build-llama-cuda.sh` im Quellordner (`~/.lokal-ide`).
+- Klappt der CUDA-Build nicht, läuft die KI auf der CPU weiter – die Installation bricht deshalb nicht ab.
 
 > Die Linux-Unterstützung ist neu: Code und Build-Konfiguration sind vorbereitet, getestet ist bisher aber nur macOS. Rückmeldungen sind willkommen.
 

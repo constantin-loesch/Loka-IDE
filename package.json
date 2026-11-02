@@ -46,7 +46,9 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/node-llama-cpp/llama/llama.cpp/**",
+      "!node_modules/node-llama-cpp/llama/xpack/**"
     ],
     "extraResources": [
       "THIRD_PARTY_LICENSES.txt"

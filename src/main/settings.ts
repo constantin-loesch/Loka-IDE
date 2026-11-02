@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ModelSettings } from '../shared/types'
+import { jetson } from './hardware'
 
 export const DEFAULT_SYSTEM_PROMPT = `Du bist ein hilfreicher Programmier-Assistent in einer lokalen IDE.
 Antworte präzise und in der Sprache des Nutzers. Setze Code immer in Markdown-Codeblöcke mit Sprachangabe.
@@ -25,7 +26,8 @@ export const DEFAULTS: ModelSettings = {
   commandTimeout: 120,
   contextSize: 8192,
   gpuLayers: 'auto',
-  flashAttention: false,
+  // Auf dem Jetson (CUDA, gemeinsamer Speicher) schneller und sparsamer beim Kontext
+  flashAttention: !!jetson(),
   gpuBackend: 'auto'
 }
 
