@@ -99,7 +99,8 @@ export function start(s: Send): void {
 // ---------- Installieren ----------
 
 async function run(cmd: string, args: string[], cwd: string, log: (t: string) => void, env: NodeJS.ProcessEnv = {}): Promise<string> {
-  const PATH = await userPath()
+  // Vom Installationsskript geladenes Node.js (falls das System keins in Version 22+ hat) zuerst
+  const PATH = [join(homedir(), '.local', 'share', 'lokal-ide', 'node', 'bin'), await userPath()].join(':')
   return new Promise((done, fail) => {
     const child = spawn(cmd, args, {
       cwd,

@@ -7,6 +7,7 @@
 # Linux: AppImage landet in ~/.local/bin/lokal-ide, dazu ein Eintrag im App-Menü
 #
 # Ordner für den Quellcode ändern:  LOKAL_IDE_DIR=~/code/lokal-ide sh install.sh
+# Fehlt Node.js 22+, wird es automatisch nach ~/.local/share/lokal-ide/node geladen.
 set -e
 
 REPO="https://github.com/constantin-loesch/Lokal-IDE.git"
@@ -18,9 +19,44 @@ fail() { printf '\033[1;31mFehler:\033[0m %s\n' "$1" >&2; exit 1; }
 
 # ---------- Voraussetzungen ----------
 command -v git >/dev/null 2>&1 || fail "git fehlt. macOS: xcode-select --install · Linux: sudo apt install git"
-command -v node >/dev/null 2>&1 || fail "Node.js 22+ fehlt. Download: https://nodejs.org (macOS auch: brew install node)"
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$NODE_MAJOR" -ge 22 ] || fail "Node.js $NODE_MAJOR ist zu alt – bitte Version 22 oder neuer installieren."
+
+# Node.js 22+ wird zum Bauen gebraucht. Fehlt es oder ist es zu alt, lädt das Skript ein eigenes
+# Node.js nach ~/.local/share/lokal-ide/node – ohne sudo und ohne das System-Node zu verändern.
+NODE_HOME="$HOME/.local/share/lokal-ide/node"
+node_ok() {
+  command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -ge 22 ]
+}
+[ -x "$NODE_HOME/bin/node" ] && PATH="$NODE_HOME/bin:$PATH" && export PATH
+if ! node_ok; then
+  case "$(uname -m)" in
+    x86_64 | amd64) NARCH=x64 ;;
+    aarch64 | arm64) NARCH=arm64 ;;
+    *) fail "Node.js 22+ fehlt, und für $(uname -m) gibt es keinen automatischen Download. Bitte selbst installieren: https://nodejs.org" ;;
+  esac
+  case "$OS" in
+    Darwin) NOS=darwin ;;
+    Linux) NOS=linux ;;
+    *) fail "Nicht unterstütztes System: $OS" ;;
+  esac
+  command -v curl >/dev/null 2>&1 || fail "curl fehlt."
+  say "Node.js 22+ fehlt – lade ein eigenes Node.js nach $NODE_HOME"
+  BASE="https://nodejs.org/dist/latest-v22.x"
+  LINE="$(curl -fsSL "$BASE/SHASUMS256.txt" | grep " node-v[0-9.]*-$NOS-$NARCH.tar.gz\$")" || fail "Node.js-Download nicht gefunden."
+  FILE="$(echo "$LINE" | awk '{print $2}')"
+  SUM="$(echo "$LINE" | awk '{print $1}')"
+  TMP="$(mktemp -d)"
+  curl -fL --progress-bar "$BASE/$FILE" -o "$TMP/$FILE"
+  if command -v sha256sum >/dev/null 2>&1; then GOT="$(sha256sum "$TMP/$FILE" | awk '{print $1}')"; else GOT="$(shasum -a 256 "$TMP/$FILE" | awk '{print $1}')"; fi
+  [ "$GOT" = "$SUM" ] || fail "Prüfsumme von $FILE stimmt nicht – Download abgebrochen."
+  rm -rf "$NODE_HOME"
+  mkdir -p "$NODE_HOME"
+  tar -xzf "$TMP/$FILE" -C "$NODE_HOME" --strip-components=1
+  rm -rf "$TMP"
+  PATH="$NODE_HOME/bin:$PATH"
+  export PATH
+  node -v >/dev/null 2>&1 || fail "Das geladene Node.js startet nicht (zu altes System? Ubuntu 18.04 / JetPack 4 wird von Node 22 nicht mehr unterstützt)."
+fi
+say "Node.js $(node -v)"
 
 if [ "$OS" = "Linux" ]; then
   # node-pty (Terminal) wird unter Linux aus dem Quellcode gebaut

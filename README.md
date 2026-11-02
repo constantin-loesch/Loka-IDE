@@ -147,7 +147,7 @@ Das Skript ([`scripts/install.sh`](scripts/install.sh)) prüft die Voraussetzung
 - **macOS:** `~/Applications/Lokal IDE.app`
 - **Linux:** `~/.local/bin/lokal-ide` (AppImage) plus Eintrag im App-Menü
 
-Danach aktualisiert sich die App selbst (siehe [Updates](#updates)); das Skript erneut auszuführen geht aber auch. Voraussetzungen: `git` und [Node.js](https://nodejs.org) 22+, unter Linux zusätzlich `build-essential` und `python3` (für das Terminal). Für Devcontainer außerdem Docker.
+Danach aktualisiert sich die App selbst (siehe [Updates](#updates)); das Skript erneut auszuführen geht aber auch. Voraussetzungen: `git`, unter Linux zusätzlich `build-essential` und `python3` (für das Terminal). Für Devcontainer außerdem Docker. **Node.js 22+** wird zum Bauen gebraucht – fehlt es oder ist es älter, lädt das Skript automatisch ein eigenes Node.js nach `~/.local/share/lokal-ide/node` (ohne `sudo`, das System-Node bleibt unverändert). Das klappt auf macOS und Linux mit x64 oder ARM64.
 
 ### Zum Entwickeln
 
@@ -172,6 +172,8 @@ npm run dev
 - **AMD / Intel (Vulkan):** Vulkan-Treiber der Distribution (z. B. `mesa-vulkan-drivers`).
 - Ohne passende GPU läuft alles auf der CPU. Das Backend lässt sich in den Modell-Einstellungen festlegen.
 - GitHub-Token landen im Schlüsselbund (libsecret); ist der nicht installiert, in `~/.git-credentials`.
+
+**NVIDIA Jetson / ARM64:** Installation und Build laufen auch auf ARM64 (z. B. Jetson Orin mit JetPack 5/6). Die KI rechnet dort mit den fertigen llama.cpp-Bausteinen auf der **CPU** – für die Jetson-GPU (CUDA) gibt es keine fertigen ARM64-Binärdateien; dafür müsste llama.cpp selbst gebaut werden (`npx --no node-llama-cpp source download --gpu cuda` im Quellordner). JetPack 4 (Ubuntu 18.04) ist für Node.js 22 zu alt.
 
 > Die Linux-Unterstützung ist neu: Code und Build-Konfiguration sind vorbereitet, getestet ist bisher aber nur macOS. Rückmeldungen sind willkommen.
 
