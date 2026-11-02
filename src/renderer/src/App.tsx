@@ -6,6 +6,7 @@ import FileTree, { type FileTreeHandle } from './components/FileTree'
 import BottomPanel, { type PanelTab } from './components/BottomPanel'
 import ContainerPanel from './components/ContainerPanel'
 import { disposeTerminal, focusTerminal } from './components/TerminalView'
+import { useUpdates } from './components/UpdateNotice'
 import EditorArea, { type Tab } from './components/EditorArea'
 import ChatPanel, { type EditorContext } from './components/ChatPanel'
 import ModelManager from './components/ModelManager'
@@ -61,6 +62,7 @@ export default function App(): React.JSX.Element {
   const [ports, setPorts] = useState<PortInfo[]>([])
   const [dcStatus, setDcStatus] = useState<DevcontainerStatus | null>(null)
   const [output, setOutput] = useState('')
+  const updates = useUpdates()
   const [chatOpen, setChatOpen] = useState(true)
   const [status, setStatus] = useState<EngineStatus>({ state: 'idle' })
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -574,8 +576,10 @@ export default function App(): React.JSX.Element {
           <Icon name="plug" size={13} /> {ports.length} {ports.length === 1 ? 'Port' : 'Ports'}
         </button>
         <span className="spacer" />
+        {updates.statusItem}
         {activeTab?.kind === 'file' && <span>{activeTab.dirty ? '● Ungespeichert' : 'Gespeichert'}</span>}
       </footer>
+      {updates.notice}
     </div>
   )
 }

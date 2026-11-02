@@ -18,3 +18,6 @@ self.MonacoEnvironment = {
 }
 
 loader.config({ monaco })
+
+// Kommentare und überzählige Kommas erlauben – devcontainer.json, tsconfig.json & Co. sind JSONC
+monaco.json.jsonDefaults.setDiagnosticsOptions({ validate: true, allowComments: true, trailingCommas: 'ignore' })

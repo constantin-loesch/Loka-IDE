@@ -39,6 +39,7 @@
   "build": {
     "appId": "de.lokalide.app",
     "productName": "Lokal IDE",
+    "npmRebuild": false,
     "directories": {
       "buildResources": "build",
       "output": "dist"
@@ -69,5 +70,9 @@
       "description": "Code-Editor mit lokalem KI-Assistenten und Coding-Agent auf Basis von llama.cpp (Metal, CUDA, Vulkan, CPU).",
       "artifactName": "Lokal-IDE-${version}-${arch}.${ext}"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/constantin-loesch/Lokal-IDE.git"
   }
 }

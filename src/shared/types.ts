@@ -332,3 +332,29 @@ export interface BuildTask {
   label: string
   command: string
 }
+
+// ---------- Updates ----------
+
+export interface UpdateCommit {
+  sha: string
+  message: string
+  date: string
+}
+
+export type UpdateState =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'up-to-date'; checkedAt: string }
+  | { state: 'available'; behindBy: number; commits: UpdateCommit[]; latest: string }
+  | { state: 'installing'; step: string }
+  /** Neue Version ist gebaut – fehlt nur noch der Neustart */
+  | { state: 'ready'; dev: boolean }
+  | { state: 'error'; message: string }
+
+export interface UpdateInfo {
+  /** Git-Commit, aus dem diese App gebaut wurde */
+  commit: string
+  buildDate: string
+  sourceDir: string
+  repo: string
+}

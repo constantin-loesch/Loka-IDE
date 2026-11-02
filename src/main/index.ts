@@ -23,6 +23,7 @@ import * as terminal from './terminal'
 import * as ports from './ports'
 import * as devcontainer from './devcontainer'
 import * as tasks from './tasks'
+import * as updater from './updater'
 
 files.registerScheme()
 
@@ -147,6 +148,12 @@ ipcMain.handle('devcontainer:remove', async (_e, root: string) => {
   await ports.setProject(root)
   send('devcontainer:changed', root)
 })
+// ---------- Updates ----------
+ipcMain.handle('update:info', () => updater.info())
+ipcMain.handle('update:state', () => updater.getState())
+ipcMain.handle('update:check', () => updater.check(false))
+ipcMain.handle('update:install', () => updater.install())
+ipcMain.handle('update:restart', () => updater.restart())
 ipcMain.handle('tasks:detect', (_e, root: string) => tasks.detect(root))
 
 // ---------- Git / GitHub ----------
@@ -275,6 +282,8 @@ function buildMenu(): void {
       label: 'Hilfe',
       role: 'help',
       submenu: [
+        { label: 'Nach Updates suchen …', click: () => send('menu:checkUpdates', null) },
+        { type: 'separator' },
         {
           label: 'Open-Source-Lizenzen',
           click: () => {
@@ -298,6 +307,7 @@ app.whenReady().then(() => {
   buildMenu()
   createWindow()
   ports.start(send)
+  updater.start(send)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

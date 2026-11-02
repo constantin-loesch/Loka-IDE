@@ -46,6 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/sc
 | 🔨 **Build-Aufgaben** | Erkennt npm-/pnpm-/yarn-Skripte, Make, Cargo, Go, Maven, Gradle, CMake, Python, .NET, Docker – ein Klick führt sie im Terminal aus, lokal oder im Container. |
 | 🌿 **Git & GitHub** | Änderungen ansehen, Dateien auswählen, committen, pushen, pullen – und neue Repositories direkt auf GitHub veröffentlichen. |
 | ⚙️ **Alles einstellbar** | Temperatur, Top-P/K, Kontextgröße, GPU-Backend, System-Prompt, Freigabe-Regeln für den Agent … |
+| ⬆️ **Updates in der App** | Gibt es auf GitHub eine neue Version, erscheint ein Hinweis mit den Änderungen. Ein Klick lädt und baut sie im Hintergrund, ein Neustart installiert sie. |
 | 💾 **Merkt sich alles** | Beim nächsten Start sind Ordner und offene Dateien wieder da. |
 
 ## Der Coding-Agent
@@ -130,6 +131,7 @@ Repository anlegen, Dateien auswählen, committen (⌘↩), pushen und pullen. F
 | Ports | [`src/main/ports.ts`](src/main/ports.ts) | Ports erkennen, Weiterleitung aus dem Container nach `localhost` |
 | Devcontainer | [`src/main/devcontainer.ts`](src/main/devcontainer.ts) | Vorlagen, Docker-Status, Start/Neubau/Stopp über die Dev-Container-CLI |
 | Build-Aufgaben | [`src/main/tasks.ts`](src/main/tasks.ts) | Erkennt Skripte und Build-Systeme im Projekt |
+| Updates | [`src/main/updater.ts`](src/main/updater.ts) | Vergleich mit GitHub, Pull & Neubau, Austausch beim Neustart |
 | Oberfläche | [`src/renderer/src/`](src/renderer/src/) | React + Monaco + xterm.js: Editor, Explorer, Terminal, Ports, Container, Chat, Freigabe-Karten, Katalog, Git |
 
 ## Installieren & starten
@@ -145,7 +147,7 @@ Das Skript ([`scripts/install.sh`](scripts/install.sh)) prüft die Voraussetzung
 - **macOS:** `~/Applications/Lokal IDE.app`
 - **Linux:** `~/.local/bin/lokal-ide` (AppImage) plus Eintrag im App-Menü
 
-Erneut ausführen = auf die neueste Version aktualisieren. Voraussetzungen: `git` und [Node.js](https://nodejs.org) 22+, unter Linux zusätzlich `build-essential` und `python3` (für das Terminal). Für Devcontainer außerdem Docker.
+Danach aktualisiert sich die App selbst (siehe [Updates](#updates)); das Skript erneut auszuführen geht aber auch. Voraussetzungen: `git` und [Node.js](https://nodejs.org) 22+, unter Linux zusätzlich `build-essential` und `python3` (für das Terminal). Für Devcontainer außerdem Docker.
 
 ### Zum Entwickeln
 
@@ -172,6 +174,17 @@ npm run dev
 - GitHub-Token landen im Schlüsselbund (libsecret); ist der nicht installiert, in `~/.git-credentials`.
 
 > Die Linux-Unterstützung ist neu: Code und Build-Konfiguration sind vorbereitet, getestet ist bisher aber nur macOS. Rückmeldungen sind willkommen.
+
+## Updates
+
+Die App merkt sich beim Bauen ihren Git-Stand und den Quellordner (bei der Installation per Skript `~/.lokal-ide`). Kurz nach dem Start und danach alle vier Stunden fragt sie GitHub, ob es auf `main` neuere Commits gibt (**Hilfe → Nach Updates suchen …** prüft sofort).
+
+Gibt es welche, erscheint unten rechts ein Hinweis mit der Liste der Änderungen:
+
+1. **Installieren** – im Hintergrund: `git pull` im Quellordner, `npm install`, App neu bauen. Du kannst dabei weiterarbeiten; „Details“ zeigt die Ausgabe.
+2. **Jetzt neu starten** – die App beendet sich, die neue Version ersetzt die alte (macOS: am selben Ort, neu signiert; Linux: das AppImage) und startet wieder.
+
+„Später“ blendet den Hinweis bis zur nächsten neuen Version aus; in der Statusleiste bleibt „Update verfügbar“ sichtbar. Hat der Quellordner nicht committete Änderungen, bricht das Update ab, statt sie zu überschreiben. Für Entwickler: `npm run dev` holt beim Update nur den neuen Code; mit `LOKAL_IDE_BUILD_COMMIT=<sha> npm run build` lässt sich ein älterer Stand vortäuschen, um den Hinweis zu testen.
 
 ## Als App bauen
 

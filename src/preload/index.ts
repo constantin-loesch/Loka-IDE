@@ -23,7 +23,9 @@ import type {
   SystemInfo,
   TerminalCreateOptions,
   TerminalInfo,
-  TextEncoding
+  TextEncoding,
+  UpdateInfo,
+  UpdateState
 } from '../shared/types'
 
 /** Abonniert ein Event und gibt eine Funktion zum Abmelden zurück. */
@@ -91,6 +93,17 @@ const api = {
     onLog: (cb: (l: DevcontainerLog) => void) => on('devcontainer:log', cb),
     onChanged: (cb: (root: string) => void) => on('devcontainer:changed', cb)
   },
+  update: {
+    info: (): Promise<UpdateInfo> => ipcRenderer.invoke('update:info'),
+    state: (): Promise<UpdateState> => ipcRenderer.invoke('update:state'),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
+    /** Neue Version holen und bauen (Fortschritt über onState/onLog) */
+    install: (): Promise<void> => ipcRenderer.invoke('update:install'),
+    /** Alte App gegen die neue tauschen und neu starten */
+    restart: (): Promise<void> => ipcRenderer.invoke('update:restart'),
+    onState: (cb: (s: UpdateState) => void) => on('update:state', cb),
+    onLog: (cb: (text: string) => void) => on('update:log', cb)
+  },
   tasks: {
     detect: (root: string): Promise<BuildTask[]> => ipcRenderer.invoke('tasks:detect', root)
   },
@@ -152,7 +165,8 @@ const api = {
   menu: {
     onCloseTab: (cb: () => void) => on('menu:closeTab', cb),
     onNewTerminal: (cb: () => void) => on('menu:newTerminal', cb),
-    onToggleTerminal: (cb: () => void) => on('menu:toggleTerminal', cb)
+    onToggleTerminal: (cb: () => void) => on('menu:toggleTerminal', cb),
+    onCheckUpdates: (cb: () => void) => on('menu:checkUpdates', cb)
   },
   chat: {
     send: (req: ChatRequest): Promise<{ ok: boolean; error?: string; changed?: string[] }> => ipcRenderer.invoke('chat:send', req),
