@@ -1,15 +1,28 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { cpus, platform, totalmem } from 'node:os'
 import { join } from 'node:path'
-import type { ApprovalAnswer, ChatRequest, DirEntry, ModelSettings, SystemInfo, TextEncoding } from '../shared/types'
+import type {
+  ApprovalAnswer,
+  ChatRequest,
+  DevcontainerTemplate,
+  DirEntry,
+  ModelSettings,
+  SystemInfo,
+  TerminalCreateOptions,
+  TextEncoding
+} from '../shared/types'
 import * as files from './files'
 import * as agent from './agent'
 import * as git from './git'
 import * as settings from './settings'
 import * as llm from './llm'
 import * as models from './models'
+import * as terminal from './terminal'
+import * as ports from './ports'
+import * as devcontainer from './devcontainer'
+import * as tasks from './tasks'
 
 files.registerScheme()
 
@@ -81,6 +94,60 @@ ipcMain.handle('fs:openExternal', async (_e, path: string) => {
   const err = await shell.openPath(path)
   if (err) throw new Error(err)
 })
+ipcMain.handle('fs:createFile', (_e, path: string) => files.createFile(path))
+ipcMain.handle('fs:createDir', (_e, path: string) => files.createDir(path))
+ipcMain.handle('fs:rename', (_e, from: string, to: string) => files.rename(from, to))
+// In den Papierkorb statt endgültig löschen
+ipcMain.handle('fs:trash', (_e, path: string) => shell.trashItem(path))
+ipcMain.handle('fs:reveal', (_e, path: string) => shell.showItemInFolder(path))
+ipcMain.handle('fs:watch', (_e, dirs: string[]) => files.watchDirs(dirs, (dir) => send('fs:changed', dir)))
+
+// ---------- Terminal ----------
+ipcMain.handle('terminal:create', (_e, opts: TerminalCreateOptions) => terminal.create(opts, send))
+ipcMain.handle('terminal:write', (_e, id: string, data: string) => terminal.write(id, data))
+ipcMain.handle('terminal:resize', (_e, id: string, cols: number, rows: number) => terminal.resize(id, cols, rows))
+ipcMain.handle('terminal:kill', (_e, id: string) => terminal.kill(id))
+ipcMain.handle('terminal:list', () => terminal.list())
+
+// ---------- Ports ----------
+ipcMain.handle('ports:list', () => ports.refresh())
+ipcMain.handle('ports:forward', (_e, port: number) => ports.forward(port, true))
+ipcMain.handle('ports:unforward', (_e, port: number) => ports.unforward(port))
+ipcMain.handle('ports:setProject', (_e, dir: string | null) => ports.setProject(dir))
+
+// ---------- Devcontainer & Build ----------
+ipcMain.handle('devcontainer:status', async (_e, root: string) => {
+  const s = await devcontainer.status(root)
+  // Weiterleitungen passend zum Container-Zustand halten
+  void ports.setProject(root)
+  return s
+})
+ipcMain.handle('devcontainer:options', () => ({ images: devcontainer.BASE_IMAGES, features: devcontainer.FEATURES }))
+ipcMain.handle('devcontainer:suggest', (_e, root: string) => devcontainer.suggest(root))
+ipcMain.handle('devcontainer:preview', (_e, t: DevcontainerTemplate) => JSON.stringify(devcontainer.templateFor(t), null, 2))
+ipcMain.handle('devcontainer:create', (_e, root: string, t: DevcontainerTemplate) => devcontainer.create(root, t))
+ipcMain.handle('devcontainer:up', async (_e, root: string, rebuild: boolean) => {
+  send('devcontainer:changed', root)
+  try {
+    const r = await devcontainer.up(root, rebuild, (l) => send('devcontainer:log', l))
+    await ports.containerStarted(root, r.containerId, r.forwardPorts)
+    return r
+  } finally {
+    send('devcontainer:changed', root)
+  }
+})
+ipcMain.handle('devcontainer:cancel', () => devcontainer.cancelUp())
+ipcMain.handle('devcontainer:stop', async (_e, root: string) => {
+  await devcontainer.stop(root)
+  await ports.setProject(root)
+  send('devcontainer:changed', root)
+})
+ipcMain.handle('devcontainer:remove', async (_e, root: string) => {
+  await devcontainer.remove(root)
+  await ports.setProject(root)
+  send('devcontainer:changed', root)
+})
+ipcMain.handle('tasks:detect', (_e, root: string) => tasks.detect(root))
 
 // ---------- Git / GitHub ----------
 ipcMain.handle('git:status', (_e, dir: string) => git.status(dir))
@@ -96,9 +163,10 @@ ipcMain.handle('github:disconnect', () => git.disconnect())
 ipcMain.handle('github:storage', () => git.credentialStorage())
 ipcMain.handle('github:publish', (_e, dir: string, name: string, isPrivate: boolean) => git.publish(dir, name, isPrivate))
 ipcMain.handle('shell:openUrl', (_e, url: string) => {
-  // Nur Web-Links öffnen
-  if (/^https:\/\//.test(url)) return shell.openExternal(url)
+  // Nur Web-Links öffnen – http nur für weitergeleitete Ports auf diesem Rechner
+  if (/^https:\/\//.test(url) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url)) return shell.openExternal(url)
 })
+ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text))
 
 // ---------- Modelle ----------
 ipcMain.handle('models:catalog', () => models.getCatalog())
@@ -192,6 +260,13 @@ function buildMenu(): void {
     { role: 'editMenu' },
     { role: 'viewMenu' },
     {
+      label: 'Terminal',
+      submenu: [
+        { label: 'Neues Terminal', accelerator: 'Ctrl+Shift+`', click: () => send('menu:newTerminal', null) },
+        { label: 'Terminal ein-/ausblenden', accelerator: 'Ctrl+`', click: () => send('menu:toggleTerminal', null) }
+      ]
+    },
+    {
       label: 'Fenster',
       role: 'window',
       submenu: mac ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] : [{ role: 'minimize' }, { role: 'togglefullscreen' }]
@@ -222,6 +297,7 @@ app.whenReady().then(() => {
   files.handleScheme()
   buildMenu()
   createWindow()
+  ports.start(send)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -232,5 +308,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  terminal.killAll()
+  ports.stopPolling()
   void llm.unloadModel()
 })

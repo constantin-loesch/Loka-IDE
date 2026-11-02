@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { editor as monacoEditor, type editor } from 'monaco-editor'
-import type { EngineStatus, OpenedFile } from '../../shared/types'
+import type { DevcontainerStatus, EngineStatus, OpenedFile, PortInfo, TerminalInfo, TerminalTarget } from '../../shared/types'
 import { modelUri } from './fileLanguage'
-import FileTree from './components/FileTree'
+import FileTree, { type FileTreeHandle } from './components/FileTree'
+import BottomPanel, { type PanelTab } from './components/BottomPanel'
+import ContainerPanel from './components/ContainerPanel'
+import { disposeTerminal, focusTerminal } from './components/TerminalView'
 import EditorArea, { type Tab } from './components/EditorArea'
 import ChatPanel, { type EditorContext } from './components/ChatPanel'
 import ModelManager from './components/ModelManager'
@@ -46,7 +49,18 @@ export default function App(): React.JSX.Element {
   const [root, setRoot] = useState<string | null>(null)
   const [tabs, setTabs] = useState<Tab[]>([{ id: MODELS_TAB, title: 'Modelle', kind: 'models' }])
   const [activeId, setActiveId] = useState<string>(MODELS_TAB)
-  const [sidebar, setSidebar] = useState<'explorer' | 'git' | null>('explorer')
+  const [sidebar, setSidebar] = useState<'explorer' | 'git' | 'container' | null>('explorer')
+  const treeRef = useRef<FileTreeHandle>(null)
+
+  // Unterer Bereich: Terminal, Ports, Ausgabe
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [panelTab, setPanelTab] = useState<PanelTab>('terminal')
+  const [panelHeight, setPanelHeight] = useState(() => Number(localStorage.getItem('panelHeight')) || 260)
+  const [terminals, setTerminals] = useState<TerminalInfo[]>([])
+  const [activeTerminal, setActiveTerminal] = useState<string | null>(null)
+  const [ports, setPorts] = useState<PortInfo[]>([])
+  const [dcStatus, setDcStatus] = useState<DevcontainerStatus | null>(null)
+  const [output, setOutput] = useState('')
   const [chatOpen, setChatOpen] = useState(true)
   const [status, setStatus] = useState<EngineStatus>({ state: 'idle' })
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -57,6 +71,45 @@ export default function App(): React.JSX.Element {
     window.api.engine.status().then(setStatus)
     return window.api.engine.onStatus(setStatus)
   }, [])
+
+  // Ports: Liste kommt vom Hauptprozess, sobald sich etwas ändert
+  useEffect(() => {
+    void window.api.ports.list().then(setPorts)
+    return window.api.ports.onChanged(setPorts)
+  }, [])
+
+  // Devcontainer-Zustand des geöffneten Projekts
+  const refreshDc = useCallback(() => {
+    if (!root) {
+      setDcStatus(null)
+      void window.api.ports.setProject(null)
+      return
+    }
+    window.api.devcontainer.status(root).then(setDcStatus, () => setDcStatus(null))
+  }, [root])
+  useEffect(refreshDc, [refreshDc])
+  useEffect(() => window.api.devcontainer.onChanged(() => refreshDc()), [refreshDc])
+  useEffect(
+    () =>
+      window.api.devcontainer.onLog((l) => {
+        // Farbcodes der CLI entfernen, Länge begrenzen
+        setOutput((prev) => (prev + l.text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')).slice(-200_000))
+      }),
+    []
+  )
+
+  // Terminal beendet (z. B. mit „exit“): aus der Liste nehmen
+  useEffect(
+    () =>
+      window.api.terminal.onExit(({ id }) => {
+        setTerminals((prev) => prev.filter((t) => t.id !== id))
+        setTimeout(() => disposeTerminal(id), 0)
+      }),
+    []
+  )
+  useEffect(() => {
+    if (activeTerminal && !terminals.some((t) => t.id === activeTerminal)) setActiveTerminal(terminals[terminals.length - 1]?.id ?? null)
+  }, [terminals, activeTerminal])
 
   // Fenstertitel (unter Linux im Fensterrahmen sichtbar)
   useEffect(() => {
@@ -121,6 +174,91 @@ export default function App(): React.JSX.Element {
       }
     }
     setActiveId(path)
+  }
+
+  const newTerminal = async (target: TerminalTarget, opts: { command?: string; title?: string; cwd?: string } = {}): Promise<void> => {
+    if (!root) return
+    try {
+      const info = await window.api.terminal.create({
+        // Im Container immer vom Projektordner aus – dort sucht die CLI die devcontainer.json
+        cwd: target === 'container' ? root : (opts.cwd ?? root),
+        target,
+        command: opts.command,
+        title: opts.title
+      })
+      setTerminals((prev) => [...prev, info])
+      setActiveTerminal(info.id)
+      setPanelTab('terminal')
+      setPanelOpen(true)
+    } catch (err) {
+      alert(`Terminal konnte nicht gestartet werden:\n${String(err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+    }
+  }
+
+  const killTerminal = (id: string): void => {
+    void window.api.terminal.kill(id)
+    setTerminals((prev) => prev.filter((t) => t.id !== id))
+    setTimeout(() => disposeTerminal(id), 0)
+  }
+
+  const togglePanel = (): void => {
+    // Beim ersten Öffnen gleich ein Terminal starten
+    if (!panelOpen && terminals.length === 0 && root && panelTab === 'terminal') void newTerminal('local')
+    setPanelOpen(!panelOpen)
+  }
+
+  /** Explorer hat umbenannt/verschoben: offene Tabs auf den neuen Pfad umstellen. */
+  const handleRenamed = (from: string, to: string): void => {
+    const moved = (p: string): string | null => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null)
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (!('path' in t)) return t
+        const next = moved(t.path)
+        if (!next) return t
+        if (t.kind === 'file') {
+          // Ungespeicherten Inhalt aus dem alten Monaco-Modell mitnehmen
+          const model = monacoEditor.getModel(modelUri(t.path))
+          const content = t.dirty && model ? model.getValue() : t.content
+          model?.dispose()
+          return { ...t, id: next, path: next, title: next.split('/').pop() ?? next, content }
+        }
+        return { ...t, id: next, path: next, title: next.split('/').pop() ?? next }
+      })
+    )
+    setActiveId((id) => moved(id) ?? id)
+  }
+
+  /** Explorer hat in den Papierkorb verschoben: zugehörige Tabs schließen (ungespeicherte bleiben offen). */
+  const handleDeleted = (path: string): void => {
+    const gone = (p: string): boolean => p === path || p.startsWith(path + '/')
+    setTabs((prev) =>
+      prev.filter((t) => {
+        if (!('path' in t) || !gone(t.path)) return true
+        if (t.kind === 'file' && t.dirty) return true
+        if (t.kind === 'file') monacoEditor.getModel(modelUri(t.path))?.dispose()
+        return false
+      })
+    )
+  }
+
+  const startResize = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = panelHeight
+    let h = startH
+    const move = (ev: MouseEvent): void => {
+      h = Math.min(Math.max(startY - ev.clientY + startH, 100), window.innerHeight - 180)
+      setPanelHeight(h)
+    }
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      document.body.classList.remove('resizing')
+      localStorage.setItem('panelHeight', String(Math.round(h)))
+    }
+    document.body.classList.add('resizing')
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
   }
 
   const openModels = (): void => {
@@ -202,6 +340,21 @@ export default function App(): React.JSX.Element {
   }
   useEffect(() => window.api.menu.onCloseTab(() => closeActiveRef.current()), [])
 
+  // Terminal-Menü: Ctrl+` blendet ein/aus, Ctrl+Shift+` öffnet ein neues Terminal
+  const menuRef = useRef({ toggle: togglePanel, create: () => void newTerminal('local') })
+  menuRef.current = { toggle: togglePanel, create: () => void newTerminal('local') }
+  useEffect(() => {
+    const a = window.api.menu.onToggleTerminal(() => menuRef.current.toggle())
+    const b = window.api.menu.onNewTerminal(() => menuRef.current.create())
+    return () => {
+      a()
+      b()
+    }
+  }, [])
+  useEffect(() => {
+    if (panelOpen && panelTab === 'terminal' && activeTerminal) focusTerminal(activeTerminal)
+  }, [panelOpen, panelTab, activeTerminal])
+
   const updateTab = useCallback((id: string, patch: Partial<Tab>) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Tab) : t)))
   }, [])
@@ -261,6 +414,16 @@ export default function App(): React.JSX.Element {
           >
             <Icon name="git" />
           </button>
+          <button
+            className={sidebar === 'container' ? 'active' : ''}
+            title="Devcontainer & Build"
+            onClick={() => setSidebar((v) => (v === 'container' ? null : 'container'))}
+          >
+            <Icon name="container" />
+          </button>
+          <button className={panelOpen ? 'active' : ''} title="Terminal (⌃`)" onClick={togglePanel}>
+            <Icon name="terminal" />
+          </button>
           <button className={activeTab?.kind === 'models' ? 'active' : ''} title="Modelle" onClick={openModels}>
             <Icon name="chip" />
           </button>
@@ -278,16 +441,64 @@ export default function App(): React.JSX.Element {
           </aside>
         )}
 
+        {sidebar === 'container' && (
+          <aside className="sidebar">
+            <div className="panel-header">
+              <span>Container &amp; Build</span>
+            </div>
+            <ContainerPanel
+              root={root}
+              status={dcStatus}
+              onRefreshStatus={refreshDc}
+              onOpenFolder={openFolder}
+              onOpenFile={openFile}
+              onRun={(command, target, title) => void newTerminal(target, { command, title })}
+              onNewTerminal={(target) => void newTerminal(target)}
+              onShowOutput={() => {
+                setPanelTab('output')
+                setPanelOpen(true)
+              }}
+            />
+          </aside>
+        )}
+
         {sidebar === 'explorer' && (
           <aside className="sidebar">
             <div className="panel-header">
               <span>Explorer</span>
-              <button className="icon-btn" title="Ordner öffnen" onClick={openFolder}>
-                <Icon name="folder-open" size={16} />
-              </button>
+              <div className="header-actions">
+                {root && (
+                  <>
+                    <button className="icon-btn" title="Neue Datei …" onClick={() => treeRef.current?.newFile()}>
+                      <Icon name="new-file" size={16} />
+                    </button>
+                    <button className="icon-btn" title="Neuer Ordner …" onClick={() => treeRef.current?.newFolder()}>
+                      <Icon name="new-folder" size={16} />
+                    </button>
+                    <button className="icon-btn" title="Explorer aktualisieren" onClick={() => treeRef.current?.refresh()}>
+                      <Icon name="refresh" size={15} />
+                    </button>
+                    <button className="icon-btn" title="Alle zuklappen" onClick={() => treeRef.current?.collapseAll()}>
+                      <Icon name="collapse" size={15} />
+                    </button>
+                  </>
+                )}
+                <button className="icon-btn" title="Ordner öffnen" onClick={openFolder}>
+                  <Icon name="folder-open" size={16} />
+                </button>
+              </div>
             </div>
             {root ? (
-              <FileTree root={root} activePath={activeTab && 'path' in activeTab ? activeTab.path : undefined} onOpen={openFile} />
+              <FileTree
+                key={root}
+                ref={treeRef}
+                root={root}
+                activePath={activeTab && 'path' in activeTab ? activeTab.path : undefined}
+                onOpen={openFile}
+                onRenamed={handleRenamed}
+                onDeleted={handleDeleted}
+                onOpenTerminal={(dir) => void newTerminal('local', { cwd: dir })}
+              />
             ) : (
               <div className="empty-hint">
                 <p>Kein Ordner geöffnet.</p>
@@ -310,6 +521,26 @@ export default function App(): React.JSX.Element {
             editorRef={editorRef}
             renderModels={() => <ModelManager status={status} />}
           />
+          {/* Bleibt eingehängt, damit Terminals beim Ausblenden weiterlaufen */}
+          <div className="bottom-wrap" style={{ height: panelHeight, display: panelOpen ? 'flex' : 'none' }}>
+            <div className="panel-resizer" onMouseDown={startResize} />
+            <BottomPanel
+              tab={panelTab}
+              onTab={setPanelTab}
+              terminals={terminals}
+              activeTerminal={activeTerminal}
+              onSelectTerminal={setActiveTerminal}
+              onNewTerminal={(t) => void newTerminal(t)}
+              onKillTerminal={killTerminal}
+              containerRunning={dcStatus?.state === 'running'}
+              ports={ports}
+              output={output}
+              onClearOutput={() => setOutput('')}
+              onClose={() => setPanelOpen(false)}
+              hasRoot={!!root}
+              visible={panelOpen}
+            />
+          </div>
         </main>
 
         {chatOpen && (
@@ -326,6 +557,22 @@ export default function App(): React.JSX.Element {
 
       <footer className="statusbar">
         <StatusText status={status} onClick={openModels} />
+        {dcStatus?.configPath && (
+          <button className={`status-item ${dcStatus.state}`} onClick={() => setSidebar('container')} title="Devcontainer">
+            <Icon name="container" size={13} />
+            {dcStatus.state === 'running' ? 'Container läuft' : dcStatus.state === 'starting' ? 'Container startet …' : 'Container aus'}
+          </button>
+        )}
+        <button
+          className="status-item"
+          onClick={() => {
+            setPanelTab('ports')
+            setPanelOpen(true)
+          }}
+          title="Weitergeleitete und erkannte Ports"
+        >
+          <Icon name="plug" size={13} /> {ports.length} {ports.length === 1 ? 'Port' : 'Ports'}
+        </button>
         <span className="spacer" />
         {activeTab?.kind === 'file' && <span>{activeTab.dirty ? '● Ungespeichert' : 'Gespeichert'}</span>}
       </footer>

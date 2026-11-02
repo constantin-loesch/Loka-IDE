@@ -6,6 +6,10 @@ import type {
   CatalogEntry,
   ChatChunk,
   ChatRequest,
+  BuildTask,
+  DevcontainerLog,
+  DevcontainerStatus,
+  DevcontainerTemplate,
   DirEntry,
   DownloadProgress,
   GitHubAccount,
@@ -15,7 +19,10 @@ import type {
   InstalledModel,
   ModelSettings,
   OpenedFile,
+  PortInfo,
   SystemInfo,
+  TerminalCreateOptions,
+  TerminalInfo,
   TextEncoding
 } from '../shared/types'
 
@@ -40,7 +47,52 @@ const api = {
     openFile: (path: string, forceText = false): Promise<OpenedFile> => ipcRenderer.invoke('fs:openFile', path, forceText),
     writeFile: (path: string, content: string, encoding?: TextEncoding): Promise<void> =>
       ipcRenderer.invoke('fs:writeFile', path, content, encoding),
-    openExternal: (path: string): Promise<void> => ipcRenderer.invoke('fs:openExternal', path)
+    openExternal: (path: string): Promise<void> => ipcRenderer.invoke('fs:openExternal', path),
+    createFile: (path: string): Promise<void> => ipcRenderer.invoke('fs:createFile', path),
+    createDir: (path: string): Promise<void> => ipcRenderer.invoke('fs:createDir', path),
+    rename: (from: string, to: string): Promise<void> => ipcRenderer.invoke('fs:rename', from, to),
+    /** In den Papierkorb verschieben */
+    trash: (path: string): Promise<void> => ipcRenderer.invoke('fs:trash', path),
+    reveal: (path: string): Promise<void> => ipcRenderer.invoke('fs:reveal', path),
+    /** Diese Ordner auf Änderungen beobachten (ersetzt die bisherige Liste) */
+    watch: (dirs: string[]): Promise<void> => ipcRenderer.invoke('fs:watch', dirs),
+    onChanged: (cb: (dir: string) => void) => on('fs:changed', cb)
+  },
+  terminal: {
+    create: (opts: TerminalCreateOptions): Promise<TerminalInfo> => ipcRenderer.invoke('terminal:create', opts),
+    write: (id: string, data: string): Promise<void> => ipcRenderer.invoke('terminal:write', id, data),
+    resize: (id: string, cols: number, rows: number): Promise<void> => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+    kill: (id: string): Promise<void> => ipcRenderer.invoke('terminal:kill', id),
+    list: (): Promise<TerminalInfo[]> => ipcRenderer.invoke('terminal:list'),
+    onData: (cb: (d: { id: string; data: string }) => void) => on('terminal:data', cb),
+    onExit: (cb: (d: { id: string; code: number }) => void) => on('terminal:exit', cb)
+  },
+  ports: {
+    list: (): Promise<PortInfo[]> => ipcRenderer.invoke('ports:list'),
+    /** Liefert den lokalen Port, unter dem der Dienst erreichbar ist */
+    forward: (port: number): Promise<number> => ipcRenderer.invoke('ports:forward', port),
+    unforward: (port: number): Promise<void> => ipcRenderer.invoke('ports:unforward', port),
+    setProject: (dir: string | null): Promise<void> => ipcRenderer.invoke('ports:setProject', dir),
+    onChanged: (cb: (list: PortInfo[]) => void) => on('ports:changed', cb)
+  },
+  devcontainer: {
+    status: (root: string): Promise<DevcontainerStatus> => ipcRenderer.invoke('devcontainer:status', root),
+    options: (): Promise<{
+      images: Record<string, { label: string; image: string }>
+      features: Record<string, { label: string; id: string }>
+    }> => ipcRenderer.invoke('devcontainer:options'),
+    suggest: (root: string): Promise<DevcontainerTemplate> => ipcRenderer.invoke('devcontainer:suggest', root),
+    preview: (t: DevcontainerTemplate): Promise<string> => ipcRenderer.invoke('devcontainer:preview', t),
+    create: (root: string, t: DevcontainerTemplate): Promise<string> => ipcRenderer.invoke('devcontainer:create', root, t),
+    up: (root: string, rebuild = false): Promise<{ containerId: string }> => ipcRenderer.invoke('devcontainer:up', root, rebuild),
+    cancel: (): Promise<void> => ipcRenderer.invoke('devcontainer:cancel'),
+    stop: (root: string): Promise<void> => ipcRenderer.invoke('devcontainer:stop', root),
+    remove: (root: string): Promise<void> => ipcRenderer.invoke('devcontainer:remove', root),
+    onLog: (cb: (l: DevcontainerLog) => void) => on('devcontainer:log', cb),
+    onChanged: (cb: (root: string) => void) => on('devcontainer:changed', cb)
+  },
+  tasks: {
+    detect: (root: string): Promise<BuildTask[]> => ipcRenderer.invoke('tasks:detect', root)
   },
   models: {
     catalog: (): Promise<CatalogEntry[]> => ipcRenderer.invoke('models:catalog'),
@@ -78,6 +130,8 @@ const api = {
       ipcRenderer.invoke('github:publish', dir, name, isPrivate)
   },
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('shell:openUrl', url),
+  /** Text in die Zwischenablage */
+  copy: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   settings: {
     get: (): Promise<ModelSettings> => ipcRenderer.invoke('settings:get'),
     defaults: (): Promise<ModelSettings> => ipcRenderer.invoke('settings:defaults'),
@@ -96,7 +150,9 @@ const api = {
     set: (data: unknown): Promise<void> => ipcRenderer.invoke('session:set', data)
   },
   menu: {
-    onCloseTab: (cb: () => void) => on('menu:closeTab', cb)
+    onCloseTab: (cb: () => void) => on('menu:closeTab', cb),
+    onNewTerminal: (cb: () => void) => on('menu:newTerminal', cb),
+    onToggleTerminal: (cb: () => void) => on('menu:toggleTerminal', cb)
   },
   chat: {
     send: (req: ChatRequest): Promise<{ ok: boolean; error?: string; changed?: string[] }> => ipcRenderer.invoke('chat:send', req),

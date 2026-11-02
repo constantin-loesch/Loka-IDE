@@ -8,7 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 // Laufzeit-Abhängigkeiten plus Pakete, die Vite in die Oberfläche bündelt (stehen in devDependencies)
-const BUNDLED = ['react', 'react-dom', 'monaco-editor', '@monaco-editor/react']
+const BUNDLED = ['react', 'react-dom', 'monaco-editor', '@monaco-editor/react', '@xterm/xterm', '@xterm/addon-fit']
 const start = [...Object.keys(pkg.dependencies ?? {}), ...BUNDLED]
 
 /** Findet ein Paket so, wie Node es von `fromDir` aus auflösen würde. */

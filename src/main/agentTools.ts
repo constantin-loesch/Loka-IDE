@@ -369,8 +369,8 @@ export function dangerOf(command: string): string | undefined {
  */
 let shellPath: Promise<string> | null = null
 /** Login-Shell des Nutzers – macOS nutzt standardmäßig zsh, Linux meist bash */
-const defaultShell = (): string => process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
-function userPath(): Promise<string> {
+export const defaultShell = (): string => process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+export function userPath(): Promise<string> {
   shellPath ??= new Promise((done) => {
     const shell = defaultShell()
     execFile(shell, ['-ilc', 'printf "__PATH__%s__END__" "$PATH"'], { timeout: 5000 }, (_err, stdout) => {

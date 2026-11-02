@@ -1,7 +1,8 @@
 // Öffnen und Speichern von Dateien beliebigen Typs.
 import { net, protocol } from 'electron'
-import { open, readFile, stat, writeFile } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { watch, type FSWatcher } from 'node:fs'
+import { mkdir, open, readFile, rename as fsRename, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { MediaKind, OpenedFile, TextEncoding } from '../shared/types'
 
@@ -102,4 +103,69 @@ export async function saveFile(path: string, content: string, encoding: TextEnco
       buf = Buffer.from(content, 'utf8')
   }
   await writeFile(path, buf)
+}
+
+// ---------- Anlegen, umbenennen, löschen ----------
+
+/** Legt eine leere Datei an; fehlende Zwischenordner („src/neu/datei.ts“) werden mit angelegt. */
+export async function createFile(path: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  // 'wx' = Fehler, wenn es die Datei schon gibt
+  await writeFile(path, '', { flag: 'wx' })
+}
+
+export async function createDir(path: string): Promise<void> {
+  if (await exists(path)) throw new Error(`„${basename(path)}“ gibt es schon.`)
+  await mkdir(path, { recursive: true })
+}
+
+export async function rename(from: string, to: string): Promise<void> {
+  if (from === to) return
+  // Nur Groß-/Kleinschreibung geändert: auf macOS ist das dieselbe Datei
+  if (from.toLowerCase() !== to.toLowerCase() && (await exists(to))) throw new Error(`„${basename(to)}“ gibt es schon.`)
+  await mkdir(dirname(to), { recursive: true })
+  await fsRename(from, to)
+}
+
+async function exists(path: string): Promise<boolean> {
+  return stat(path).then(
+    () => true,
+    () => false
+  )
+}
+
+// ---------- Ordner beobachten ----------
+
+const watchers = new Map<string, FSWatcher>()
+
+/**
+ * Beobachtet die aufgeklappten Ordner des Explorers (nicht rekursiv, also auch bei großen
+ * Projekten billig). Änderungen – z. B. aus dem Terminal – meldet `onChange` mit dem Ordner.
+ */
+export function watchDirs(dirs: string[], onChange: (dir: string) => void): void {
+  const wanted = new Set(dirs)
+  for (const [dir, w] of watchers) {
+    if (!wanted.has(dir)) {
+      w.close()
+      watchers.delete(dir)
+    }
+  }
+  for (const dir of wanted) {
+    if (watchers.has(dir)) continue
+    try {
+      let t: NodeJS.Timeout | null = null
+      const w = watch(dir, () => {
+        // Viele Ereignisse kurz hintereinander zusammenfassen
+        if (t) clearTimeout(t)
+        t = setTimeout(() => onChange(dir), 150)
+      })
+      w.on('error', () => {
+        w.close()
+        watchers.delete(dir)
+      })
+      watchers.set(dir, w)
+    } catch {
+      /* Ordner gibt es nicht mehr */
+    }
+  }
 }

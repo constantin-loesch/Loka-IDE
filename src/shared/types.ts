@@ -250,3 +250,85 @@ export interface GitHubAccount {
   name: string | null
   avatarUrl: string
 }
+
+// ---------- Terminal ----------
+
+/** Wo ein Terminal läuft: auf dem Rechner oder im Devcontainer des Projekts. */
+export type TerminalTarget = 'local' | 'container'
+
+export interface TerminalInfo {
+  id: string
+  title: string
+  target: TerminalTarget
+  cwd: string
+}
+
+export interface TerminalCreateOptions {
+  cwd: string
+  target: TerminalTarget
+  /** Wird nach dem Start ausgeführt (z. B. eine Build-Aufgabe) */
+  command?: string
+  title?: string
+}
+
+// ---------- Ports ----------
+
+export interface PortInfo {
+  /** Port, auf dem der Dienst lauscht (im Container bzw. auf dem Rechner) */
+  port: number
+  /** 'local' = Prozess aus einem Terminal der IDE, 'container' = im Devcontainer */
+  source: 'local' | 'container'
+  /** Prozessname, falls bekannt */
+  process?: string
+  /** Lokaler Port, über den ein Container-Port erreichbar ist */
+  localPort?: number
+  /** Weiterleitung manuell angelegt oder aus forwardPorts der devcontainer.json */
+  forwarded: boolean
+  /** Adresse zum Öffnen im Browser */
+  url: string
+}
+
+// ---------- Devcontainer ----------
+
+export type ContainerState = 'none' | 'stopped' | 'running' | 'starting'
+
+export interface DevcontainerStatus {
+  /** Gibt es eine devcontainer.json im Projekt? */
+  configPath: string | null
+  name: string | null
+  /** Ist Docker installiert und läuft? */
+  docker: 'ok' | 'missing' | 'not-running'
+  dockerMessage?: string
+  state: ContainerState
+  containerId: string | null
+  image: string | null
+  remoteWorkspaceFolder: string | null
+  forwardPorts: number[]
+}
+
+/** Auswahl im Dialog „Devcontainer anlegen“. */
+export interface DevcontainerTemplate {
+  name: string
+  /** Schlüssel aus BASE_IMAGES */
+  image: string
+  /** Schlüssel aus FEATURES */
+  features: string[]
+  forwardPorts: number[]
+  postCreateCommand: string
+}
+
+export interface DevcontainerLog {
+  text: string
+  /** true, wenn ein Vorgang (Start, Neuaufbau) beendet ist */
+  done?: boolean
+  error?: boolean
+}
+
+// ---------- Build-Aufgaben ----------
+
+export interface BuildTask {
+  /** z. B. „npm“, „make“, „cargo“ */
+  group: string
+  label: string
+  command: string
+}

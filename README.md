@@ -6,8 +6,16 @@
 
 <p align="center">
   <b>Code-Editor mit eingebauter KI, die komplett auf deinem Rechner läuft.</b><br>
-  Chat, Coding-Agent, Git und GitHub – ohne Cloud, ohne API-Schlüssel, ohne Abo.
+  Chat, Coding-Agent, Terminal, Devcontainer, Git und GitHub – ohne Cloud, ohne API-Schlüssel, ohne Abo.
 </p>
+
+<p align="center">
+  <b>Installieren mit einem Befehl</b> (macOS &amp; Linux):
+</p>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/scripts/install.sh | sh
+```
 
 <p align="center">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%C2%B7%20Metal-000?logo=apple">
@@ -31,6 +39,11 @@
 | 💻 **Lokale KI** | Modelle laufen über [llama.cpp](https://github.com/ggml-org/llama.cpp) direkt in der App – mit Metal (Mac), CUDA (NVIDIA), Vulkan (AMD/Intel) oder auf der CPU. |
 | 📚 **21 Modelle, 0,8B – 480B** | Qwen 3.5/3.6/3.8, Gemma 4, gpt-oss, Qwen3 Coder … jeweils von 2-Bit bis zum unquantisierten Original – mit Tempo-Schätzung für deinen Rechner. |
 | 📝 **Editor wie VS Code** | Monaco-Editor mit Syntax-Highlighting für alle gängigen Sprachen, Vorschau für Bilder, PDFs, Audio und Video. |
+| 📁 **Explorer** | Dateien und Ordner anlegen (auch `ordner/unterordner/datei.ts` in einem Schritt), umbenennen (F2), in den Papierkorb verschieben, Pfad kopieren, im Terminal öffnen. Änderungen von außen erscheinen sofort. |
+| 🖥️ **Integriertes Terminal** | Echte Shell (zsh/bash) mit Farben, mehreren Terminals nebeneinander – lokal oder im Devcontainer. <kbd>⌃\`</kbd> blendet ein/aus. |
+| 🔌 **Ports** | Startet ein Programm im Terminal einen Server, taucht sein Port automatisch auf. Ports aus dem Devcontainer werden auf `localhost` weitergeleitet – ein Klick öffnet sie im Browser. |
+| 📦 **Devcontainer** | `devcontainer.json` per Dialog anlegen (Sprache, Build-Tools, Ports), Container bauen, starten, stoppen und neu bauen – über die offizielle Dev-Container-CLI, kompatibel mit VS Code. |
+| 🔨 **Build-Aufgaben** | Erkennt npm-/pnpm-/yarn-Skripte, Make, Cargo, Go, Maven, Gradle, CMake, Python, .NET, Docker – ein Klick führt sie im Terminal aus, lokal oder im Container. |
 | 🌿 **Git & GitHub** | Änderungen ansehen, Dateien auswählen, committen, pushen, pullen – und neue Repositories direkt auf GitHub veröffentlichen. |
 | ⚙️ **Alles einstellbar** | Temperatur, Top-P/K, Kontextgröße, GPU-Backend, System-Prompt, Freigabe-Regeln für den Agent … |
 | 💾 **Merkt sich alles** | Beim nächsten Start sind Ordner und offene Dateien wieder da. |
@@ -54,6 +67,24 @@ Kleine lokale Modelle sind nicht so zuverlässig wie große Cloud-Modelle. Desha
   <img src="docs/screenshots/agent-ergebnis.png" alt="Ergebnis: Fehler behoben, Funktion ergänzt, Tests bestanden" width="900">
   <br><sub>Echter Lauf mit Qwen2.5 Coder 3B auf einem Mac mit M3 und 8 GB RAM: Fehler gefunden, Funktion ergänzt, <code>npm test</code> grün.</sub>
 </p>
+
+## Terminal, Ports & Devcontainer
+
+<p align="center">
+  <img src="docs/screenshots/devcontainer.png" alt="Dialog zum Anlegen eines Devcontainers mit Build-Tools, Ports und Vorschau der devcontainer.json" width="900">
+</p>
+
+**Terminal** – das Terminal-Symbol links oder <kbd>⌃\`</kbd> öffnet unten ein Terminal im Projektordner (<kbd>⌃⇧\`</kbd> ein weiteres). Es ist eine echte Shell über [node-pty](https://github.com/microsoft/node-pty) und [xterm.js](https://github.com/xtermjs/xterm.js): Farben, Vollbild-Programme wie `vim` oder `htop`, <kbd>⌘C</kbd> kopiert die Auswahl, <kbd>⌘K</kbd> leert. Terminals laufen weiter, wenn der Bereich ausgeblendet ist.
+
+**Ports** – die App beobachtet, welche Programme aus ihren Terminals einen TCP-Port öffnen (`lsof` bzw. `ss`), und zeigt sie im Tab *Ports* mit Link zum Öffnen. Im Devcontainer werden lauschende Ports automatisch erkannt (`/proc/net/tcp`) und auf `localhost` weitergeleitet – ist der Port belegt, wird der nächste freie genommen. Eigene Weiterleitungen trägst du unten im Tab ein.
+
+**Devcontainer** – im Bereich *Container & Build* (Würfel-Symbol):
+
+1. **Anlegen:** Der Dialog schlägt passend zum Projekt ein Image vor (Node, Python, Go, Rust, Java, C/C++, .NET …), dazu Build-Tools als [Features](https://containers.dev/features) (Node, Python, Go, Rust, Java + Maven + Gradle, gcc/make/CMake, Docker-in-Docker, GitHub CLI), Ports und einen Befehl nach dem Erstellen (z. B. `npm install`). Die `devcontainer.json` siehst du live, bevor sie geschrieben wird.
+2. **Starten / Neu bauen / Stoppen / Löschen:** läuft über die offizielle [Dev-Container-CLI](https://github.com/devcontainers/cli) – dieselbe Technik wie in VS Code, also funktionieren auch vorhandene Konfigurationen mit Dockerfile oder Docker Compose. Den Fortschritt zeigt der Tab *Ausgabe*.
+3. **Arbeiten:** „Terminal im Container“ öffnet eine Shell im Container (als `remoteUser`, im Arbeitsordner). Build-Aufgaben lassen sich wahlweise *lokal* oder *im Container* ausführen.
+
+Voraussetzung ist Docker: [Docker Desktop](https://www.docker.com/products/docker-desktop/), OrbStack, Colima oder die Docker Engine unter Linux.
 
 ## Modelle
 
@@ -95,13 +126,32 @@ Repository anlegen, Dateien auswählen, committen (⌘↩), pushen und pullen. F
 | Hardware | [`src/main/hardware.ts`](src/main/hardware.ts) | Passt das Modell? Wie schnell läuft es? |
 | Modelle | [`src/main/models.ts`](src/main/models.ts), [`catalog.ts`](src/main/catalog.ts) | Katalog, mehrteilige Downloads, Installation |
 | Git | [`src/main/git.ts`](src/main/git.ts) | Git-Befehle, GitHub-API |
-| Oberfläche | [`src/renderer/src/`](src/renderer/src/) | React + Monaco: Editor, Explorer, Chat, Freigabe-Karten, Katalog, Git |
+| Terminal | [`src/main/terminal.ts`](src/main/terminal.ts) | Pseudo-Terminals (node-pty), lokal oder per `devcontainer exec` |
+| Ports | [`src/main/ports.ts`](src/main/ports.ts) | Ports erkennen, Weiterleitung aus dem Container nach `localhost` |
+| Devcontainer | [`src/main/devcontainer.ts`](src/main/devcontainer.ts) | Vorlagen, Docker-Status, Start/Neubau/Stopp über die Dev-Container-CLI |
+| Build-Aufgaben | [`src/main/tasks.ts`](src/main/tasks.ts) | Erkennt Skripte und Build-Systeme im Projekt |
+| Oberfläche | [`src/renderer/src/`](src/renderer/src/) | React + Monaco + xterm.js: Editor, Explorer, Terminal, Ports, Container, Chat, Freigabe-Karten, Katalog, Git |
 
 ## Installieren & starten
 
-Voraussetzung: [Node.js](https://nodejs.org) 22 oder neuer.
+### Mit einem Befehl
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/scripts/install.sh | sh
+```
+
+Das Skript ([`scripts/install.sh`](scripts/install.sh)) prüft die Voraussetzungen, lädt den Quellcode nach `~/.lokal-ide`, installiert die Abhängigkeiten und baut die App:
+
+- **macOS:** `~/Applications/Lokal IDE.app`
+- **Linux:** `~/.local/bin/lokal-ide` (AppImage) plus Eintrag im App-Menü
+
+Erneut ausführen = auf die neueste Version aktualisieren. Voraussetzungen: `git` und [Node.js](https://nodejs.org) 22+, unter Linux zusätzlich `build-essential` und `python3` (für das Terminal). Für Devcontainer außerdem Docker.
+
+### Zum Entwickeln
+
+```bash
+git clone https://github.com/constantin-loesch/Lokal-IDE.git
+cd Lokal-IDE
 npm install
 npm run dev
 ```
@@ -111,6 +161,7 @@ Beim ersten Start unter „Modelle“ ein Modell herunterladen (z. B. **Qwen3.5 
 ### Linux
 
 ```bash
+sudo apt install build-essential python3   # für das Terminal (node-pty wird gebaut)
 npm install          # lädt automatisch die llama.cpp-Bausteine für CPU, Vulkan und CUDA
 npm run dev
 ```
@@ -136,7 +187,7 @@ Modelle liegen unter `~/Library/Application Support/Lokal IDE/models` (macOS) bz
 ## Ideen für später
 
 - Inline-Vervollständigung im Editor (Ghost-Text)
-- Integriertes Terminal
+- Dateien per Drag & Drop im Explorer verschieben
 - Projektweiter Kontext (Embeddings über den geöffneten Ordner)
 - OpenAI-kompatibler lokaler Server, damit auch andere Tools die Modelle nutzen können
 
@@ -152,11 +203,14 @@ Lokal IDE baut auf diesen Open-Source-Projekten auf:
 | [Monaco Editor](https://github.com/microsoft/monaco-editor) | Code-Editor (derselbe wie in VS Code) | MIT |
 | [@monaco-editor/react](https://github.com/suren-atoyan/monaco-react) | Monaco in React | MIT |
 | [React](https://github.com/facebook/react) | Oberfläche | MIT |
+| [xterm.js](https://github.com/xtermjs/xterm.js) | Terminal-Darstellung | MIT |
+| [node-pty](https://github.com/microsoft/node-pty) | Echte Pseudo-Terminals | MIT |
+| [Dev Container CLI](https://github.com/devcontainers/cli) | Devcontainer bauen und starten | MIT |
 | [Vite](https://github.com/vitejs/vite), [electron-vite](https://github.com/alex8088/electron-vite) | Build | MIT |
 | [electron-builder](https://github.com/electron-userland/electron-builder) | Mac-App packen | MIT |
 | [TypeScript](https://github.com/microsoft/TypeScript) | Sprache | Apache 2.0 |
 
-Die vollständigen Lizenztexte aller mitgelieferten Pakete (121 Stück, alle freizügig: MIT, ISC, Blue Oak, Apache 2.0) stehen in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). Die Datei wird bei `npm run app` neu erzeugt (`scripts/licenses.mjs`), mit der App ausgeliefert und ist dort über **Hilfe → Open-Source-Lizenzen** erreichbar.
+Die vollständigen Lizenztexte aller mitgelieferten Pakete (126 Stück, alle freizügig: MIT, ISC, Blue Oak, Apache 2.0, MPL 2.0 wahlweise) stehen in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). Die Datei wird bei `npm run app` neu erzeugt (`scripts/licenses.mjs`), mit der App ausgeliefert und ist dort über **Hilfe → Open-Source-Lizenzen** erreichbar.
 
 ### Modelle
 

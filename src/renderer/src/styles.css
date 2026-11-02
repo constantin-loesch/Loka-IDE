@@ -273,12 +273,14 @@ h2 {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;
 }
 .editor-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 .tabbar {
   display: flex;
@@ -1251,4 +1253,643 @@ section h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- Explorer: Anlegen, Umbenennen, Kontextmenü ---------- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.header-actions .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+.filetree:focus {
+  outline: none;
+}
+.filetree:focus-within .tree-row.selected {
+  outline: 1px solid rgba(79, 140, 255, 0.6);
+  outline-offset: -1px;
+}
+.tree-row.active .tree-name {
+  color: #fff;
+}
+.tree-row.editing {
+  cursor: default;
+}
+.tree-input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.tree-input input {
+  width: 100%;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+.tree-input-error {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 21px;
+  z-index: 5;
+  padding: 3px 6px;
+  background: #5a1d1d;
+  border: 1px solid var(--err);
+  font-size: 12px;
+  white-space: normal;
+}
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 210px;
+  padding: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.context-menu button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.context-menu button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.context-menu button.danger:hover {
+  background: var(--err);
+}
+.context-menu kbd {
+  color: var(--muted);
+  font: inherit;
+}
+.context-menu button:hover kbd {
+  color: #fff;
+}
+.context-menu hr {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- Unterer Bereich: Terminal, Ports, Ausgabe ---------- */
+.bottom-wrap {
+  position: relative;
+  flex-shrink: 0;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  min-height: 0;
+}
+.panel-resizer {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 10;
+  cursor: row-resize;
+}
+.panel-resizer:hover,
+body.resizing .panel-resizer {
+  background: var(--accent);
+}
+body.resizing {
+  cursor: row-resize;
+}
+body.resizing iframe,
+body.resizing .xterm {
+  pointer-events: none;
+}
+.bottom-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.panel-tabs {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 10px;
+}
+.panel-tabs > button:not(.icon-btn) {
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.panel-tabs > button:not(.icon-btn):hover {
+  color: var(--text);
+}
+.panel-tabs > button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.panel-tabs .count {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.panel-tabs .spacer {
+  flex: 1;
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: none;
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.terminal-area {
+  flex: 1;
+  min-width: 0;
+}
+.terminal-stack {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  padding: 4px 0 0 12px;
+}
+.terminal-box {
+  position: absolute;
+  inset: 4px 4px 4px 12px;
+}
+.xterm-host,
+.xterm-host .xterm {
+  height: 100%;
+}
+.terminal-list {
+  width: 180px;
+  flex-shrink: 0;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  padding: 4px 0;
+}
+.terminal-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px 0 10px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.terminal-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-item .icon-btn {
+  width: 20px;
+  height: 20px;
+  visibility: hidden;
+}
+.terminal-item:hover .icon-btn,
+.terminal-item.active .icon-btn {
+  visibility: visible;
+}
+.terminal-item:hover {
+  background: var(--bg-hover);
+}
+.terminal-item.active {
+  background: rgba(79, 140, 255, 0.2);
+  color: var(--text);
+}
+
+.ports-view {
+  flex: 1;
+  overflow: auto;
+  padding: 0 12px 12px;
+}
+.ports-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ports-table th {
+  position: sticky;
+  top: 0;
+  padding: 6px 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.ports-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(57, 59, 64, 0.5);
+}
+.ports-table tr:hover td {
+  background: var(--bg-panel);
+}
+.ports-empty {
+  padding: 16px 8px !important;
+  white-space: normal;
+}
+.port-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.port-dot.container {
+  background: var(--accent);
+}
+.port-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.port-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.port-add input,
+.task-custom input,
+.field input,
+.field select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+.port-add input {
+  width: 300px;
+}
+.port-add input:focus,
+.task-custom input:focus,
+.field input:focus,
+.field select:focus {
+  border-color: var(--accent);
+}
+.err-text {
+  color: var(--err);
+}
+.muted {
+  color: var(--muted);
+}
+.mono {
+  font-family: var(--mono);
+}
+.small {
+  font-size: 11px;
+}
+.output-view {
+  flex: 1;
+  margin: 0;
+  padding: 8px 14px;
+  overflow: auto;
+  font: 12px/1.45 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  user-select: text;
+}
+
+/* ---------- Container & Build ---------- */
+.container-panel {
+  flex: 1;
+  overflow: auto;
+  padding: 0 12px 16px;
+}
+.container-panel section {
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.container-panel section:last-of-type {
+  border-bottom: 0;
+}
+.container-panel h3 {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.container-panel p {
+  margin: 0 0 10px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.btn.block {
+  width: 100%;
+}
+.link-btn.inline {
+  display: inline;
+  padding: 0;
+  color: var(--accent);
+}
+.notice {
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.notice small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  word-break: break-word;
+}
+.notice.warn {
+  border-color: rgba(224, 168, 74, 0.5);
+  background: rgba(224, 168, 74, 0.08);
+}
+.notice.err {
+  border-color: rgba(229, 99, 106, 0.5);
+  background: rgba(229, 99, 106, 0.08);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dc-card {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.dc-card .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.dc-title b {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge {
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  background: var(--bg-hover);
+  color: var(--muted);
+}
+.badge.running {
+  background: rgba(79, 191, 122, 0.18);
+  color: var(--ok);
+}
+.badge.starting {
+  background: rgba(224, 168, 74, 0.18);
+  color: var(--warn);
+}
+.dc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.dc-actions .btn {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.segmented {
+  display: flex;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented button {
+  flex: 1;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.segmented button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.task-group {
+  margin-bottom: 8px;
+}
+.task-group-name {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.task-row svg {
+  color: var(--ok);
+  flex-shrink: 0;
+}
+.task-row span {
+  flex-shrink: 0;
+}
+.task-row code {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+.task-row:hover {
+  background: var(--bg-hover);
+}
+.task-custom {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+.task-custom input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ---------- Dialog ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+.modal {
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.modal-head,
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+.modal-foot {
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}
+.modal > .notice {
+  margin: 0 16px 12px;
+}
+.modal-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 0 16px 16px;
+  overflow: auto;
+  min-height: 0;
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.feature-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.check input {
+  accent-color: var(--accent);
+}
+.modal-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.modal-preview pre {
+  flex: 1;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font: 12px/1.5 var(--mono);
+  user-select: text;
+}
+
+/* ---------- Statusleiste ---------- */
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.status-item:hover {
+  color: var(--text);
+}
+.status-item.running {
+  color: var(--ok);
+}
+.status-item.starting {
+  color: var(--warn);
+}
+/* xterm füllt nicht immer die ganze Höhe – Restfläche in Hintergrundfarbe statt schwarz */
+.terminal-box .xterm,
+.terminal-box .xterm-viewport,
+.terminal-box .xterm-scrollable-element {
+  background-color: var(--bg) !important;
 }
