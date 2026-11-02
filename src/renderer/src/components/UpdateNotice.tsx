@@ -133,6 +133,7 @@ export function useUpdates(): {
           <p className="muted">
             {state.dev ? 'Neuer Code ist geladen. Starte die App neu, um ihn zu benutzen.' : 'Die neue Version ist gebaut. Beim Neustart wird sie installiert.'}
           </p>
+          {state.installTo && <p className="muted small mono update-path">→ {state.installTo}</p>}
           <p className="muted small">Ungespeicherte Dateien vorher speichern – laufende Terminals werden beendet.</p>
           <div className="update-actions">
             <button className="btn" onClick={() => setOpen(false)}>

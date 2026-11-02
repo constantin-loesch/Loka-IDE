@@ -1986,3 +1986,6 @@ body.resizing .xterm {
     transform: rotate(360deg);
   }
 }
+.update-path {
+  word-break: break-all;
+}

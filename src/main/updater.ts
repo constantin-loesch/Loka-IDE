@@ -5,7 +5,7 @@
 // neu bauen → nach dem Beenden die alte App austauschen und neu starten.
 import { app } from 'electron'
 import { spawn } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { UpdateInfo, UpdateState } from '../shared/types'
@@ -137,6 +137,8 @@ export async function install(): Promise<void> {
       )
     }
     step('Prüfe den Quellordner')
+    // package-lock.json schreibt npm install selbst um – kein Grund, das Update abzubrechen
+    await run('git', ['checkout', '--', 'package-lock.json'], dir, () => undefined).catch(() => '')
     const dirty = (await run('git', ['status', '--porcelain', '--untracked-files=no'], dir, () => undefined)).trim()
     if (dirty) {
       throw new Error(`Im Quellordner ${dir} gibt es nicht committete Änderungen. Committe oder verwirf sie, dann erneut versuchen.\n${dirty}`)
@@ -158,7 +160,8 @@ export async function install(): Promise<void> {
     step('Baue die App (dauert ein paar Minuten)')
     if (process.platform === 'darwin') {
       await run('npm', ['run', 'app'], dir, log, { LOKAL_IDE_BUILD_ONLY: '1' })
-      built = join(dir, 'dist', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Lokal IDE.app')
+      // Eigener Ausgabeordner (siehe package-mac.sh), damit eine laufende App in dist/ unberührt bleibt
+      built = join(dir, 'dist', 'update', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Lokal IDE.app')
     } else {
       await run('npm', ['run', 'app:linux'], dir, log)
       const dist = join(dir, 'dist')
@@ -170,7 +173,7 @@ export async function install(): Promise<void> {
     }
     if (!built || !existsSync(built)) throw new Error('Die gebaute App wurde nicht gefunden.')
     log(`\n✔ Neue Version gebaut: ${built}\n`)
-    setState({ state: 'ready', dev: false })
+    setState({ state: 'ready', dev: false, installTo: installTarget() })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     log(`\n✖ ${message}\n`)
@@ -186,6 +189,25 @@ function runningBundle(): string | null {
   return i > 0 ? process.execPath.slice(0, i + 4) : null
 }
 
+/**
+ * Wohin die neue Version kommt. Normalerweise dorthin, wo die App gerade liegt – außer sie läuft
+ * direkt aus dem Build-Ordner des Projekts oder aus einem temporären Ort: dann nach ~/Applications.
+ */
+export function installTarget(): string {
+  if (process.platform !== 'darwin') return process.env.APPIMAGE ?? join(homedir(), '.local', 'bin', 'lokal-ide')
+  const fallback = join(homedir(), 'Applications', 'Lokal IDE.app')
+  const running = runningBundle()
+  if (!running) return fallback
+  const insideSource = running.startsWith(sourceDir() + '/')
+  const translocated = running.includes('/AppTranslocation/') || running.startsWith('/private/var/folders/') || running.startsWith('/Volumes/')
+  return insideSource || translocated ? fallback : running
+}
+
+/** Läuft gerade ein Update-Build? Dann soll die App nicht einfach beendet werden. */
+export function isInstalling(): boolean {
+  return state.state === 'installing'
+}
+
 /** Tauscht die App gegen die neu gebaute und startet sie neu. */
 export function restart(): void {
   if (state.state !== 'ready') return
@@ -197,13 +219,29 @@ export function restart(): void {
   }
 
   if (process.platform === 'darwin') {
-    const dest = runningBundle() ?? join(homedir(), 'Applications', 'Lokal IDE.app')
+    const dest = installTarget()
     const script = join(sourceDir(), 'scripts', 'mac-install-app.sh')
-    // Läuft weiter, nachdem die App beendet ist: warten, austauschen, wieder öffnen
+    const logDir = join(homedir(), 'Library', 'Logs', 'Lokal IDE')
+    mkdirSync(logDir, { recursive: true })
+    const logFile = join(logDir, 'update.log')
+    // Läuft weiter, nachdem die App beendet ist: warten, austauschen, wieder öffnen.
+    // Ausgabe landet in ~/Library/Logs/Lokal IDE/update.log
     const child = spawn(
       '/bin/sh',
-      ['-c', 'while kill -0 "$3" 2>/dev/null; do sleep 0.3; done; sh "$0" "$1" "$2" && open "$2"', script, built, dest, String(process.pid)],
-      { detached: true, stdio: 'ignore' }
+      [
+        '-c',
+        'exec >>"$5" 2>&1; echo "--- $(date) Update: $1 -> $2"; ' +
+          'while kill -0 "$3" 2>/dev/null; do sleep 0.3; done; ' +
+          'if sh "$0" "$1" "$2"; then echo "installiert"; open "$2"; else echo "Austausch fehlgeschlagen"; open "$4"; fi',
+        script,
+        built,
+        dest,
+        String(process.pid),
+        // Notfalls die alte App wieder öffnen
+        runningBundle() ?? dest,
+        logFile
+      ],
+      { detached: true, stdio: 'ignore', env: { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } }
     )
     child.unref()
     app.quit()

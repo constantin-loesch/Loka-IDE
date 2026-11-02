@@ -348,7 +348,7 @@ export type UpdateState =
   | { state: 'available'; behindBy: number; commits: UpdateCommit[]; latest: string }
   | { state: 'installing'; step: string }
   /** Neue Version ist gebaut – fehlt nur noch der Neustart */
-  | { state: 'ready'; dev: boolean }
+  | { state: 'ready'; dev: boolean; /** Wohin die neue Version installiert wird */ installTo?: string }
   | { state: 'error'; message: string }
 
 export interface UpdateInfo {

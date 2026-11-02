@@ -317,7 +317,22 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // Mitten im Update-Build beenden würde den Build abbrechen
+  if (updater.isInstalling()) {
+    const choice = dialog.showMessageBoxSync({
+      type: 'warning',
+      buttons: ['Weiter warten', 'Trotzdem beenden'],
+      defaultId: 0,
+      cancelId: 0,
+      message: 'Das Update wird gerade gebaut.',
+      detail: 'Beim Beenden wird der Build abgebrochen. Danach musst du das Update erneut starten.'
+    })
+    if (choice === 0) {
+      e.preventDefault()
+      return
+    }
+  }
   terminal.killAll()
   ports.stopPolling()
   void llm.unloadModel()

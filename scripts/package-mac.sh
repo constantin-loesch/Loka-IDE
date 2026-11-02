@@ -21,12 +21,15 @@ DEST="$HOME/Applications/Lokal IDE.app"
 
 node scripts/licenses.mjs
 electron-vite build
-electron-builder --mac dir $ARCH
 
 if [ -n "$LOKAL_IDE_BUILD_ONLY" ]; then
-  echo "Gebaut: $SRC"
+  # Eigener Ausgabeordner: eine laufende App in dist/ wird beim Update nicht angefasst
+  electron-builder --mac dir $ARCH -c.directories.output=dist/update
+  echo "Gebaut: dist/update/${SRC#dist/}"
   exit 0
 fi
+
+electron-builder --mac dir $ARCH
 
 sh scripts/mac-install-app.sh "$SRC" "$DEST"
 echo "Fertig: $DEST"
