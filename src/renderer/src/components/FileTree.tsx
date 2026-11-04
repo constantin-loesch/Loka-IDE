@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import type { DirEntry } from '../../../shared/types'
 import { Icon } from './Icon'
+import { t } from '../i18n'
 
-/** Befehle aus der Kopfzeile des Explorers. */
+/** Commands from the explorer's header. */
 export interface FileTreeHandle {
   newFile: () => void
   newFolder: () => void
@@ -14,9 +15,9 @@ interface Props {
   root: string
   activePath?: string
   onOpen: (path: string) => void
-  /** Datei oder Ordner wurde umbenannt/verschoben – offene Tabs anpassen */
+  /** File or folder was renamed/moved – update open tabs */
   onRenamed: (from: string, to: string) => void
-  /** Datei oder Ordner liegt jetzt im Papierkorb */
+  /** File or folder is now in the trash */
   onDeleted: (path: string) => void
   onOpenTerminal: (dir: string) => void
   ref?: Ref<FileTreeHandle>
@@ -52,12 +53,12 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
       else delete next[dir]
       return next
     })
-    // Ordner gibt es nicht mehr: aus den aufgeklappten entfernen
+    // Folder no longer exists: remove it from the expanded ones
     if (!entries) setExpanded((prev) => (prev.has(dir) && dir !== root ? new Set([...prev].filter((d) => d !== dir)) : prev))
   }, [root])
 
-  // Aufgeklappte Ordner laden und beobachten (Änderungen aus Terminal, Git, Agent …)
-  // Jeder aufgeklappte Ordner wird einmal geladen; danach halten ihn die Datei-Ereignisse aktuell
+  // Load and watch expanded folders (changes from terminal, Git, agent …)
+  // Each expanded folder is loaded once; after that file events keep it up to date
   const requested = useRef(new Set<string>())
   useEffect(() => {
     for (const dir of requested.current) if (!expanded.has(dir)) requested.current.delete(dir)
@@ -84,7 +85,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
   const isDir = (path: string): boolean =>
     path === root || Object.values(children).some((list) => list.some((e) => e.path === path && e.isDir))
 
-  /** Zielordner für „Neue Datei“: der ausgewählte Ordner bzw. der Ordner der ausgewählten Datei. */
+  /** Target folder for “New File”: the selected folder or the folder of the selected file. */
   const targetDir = (): string => {
     if (!selected || !selected.startsWith(root)) return root
     return isDir(selected) ? selected : dirname(selected)
@@ -111,14 +112,14 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
     setExpanded((prev) => {
       const next = new Set(prev)
       if (next.has(dir)) {
-        // Unterordner mit zuklappen
+        // Collapse subfolders too
         for (const d of prev) if (d === dir || d.startsWith(dir + '/')) next.delete(d)
       } else next.add(dir)
       return next
     })
   }
 
-  /** Eingabe übernehmen. Gibt eine Fehlermeldung zurück oder null. */
+  /** Applies the input. Returns an error message or null. */
   const commit = async (name: string): Promise<string | null> => {
     if (!editing) return null
     const clean = name.trim().replace(/\/+$/, '')
@@ -126,7 +127,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
       setEditing(null)
       return null
     }
-    if (clean.startsWith('/') || clean.split('/').some((p) => p === '..' || p === '.')) return 'Ungültiger Name'
+    if (clean.startsWith('/') || clean.split('/').some((p) => p === '..' || p === '.')) return t('Invalid name')
     try {
       if (editing.mode === 'rename') {
         const to = `${dirname(editing.path)}/${clean}`
@@ -134,7 +135,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
           await window.api.fs.rename(editing.path, to)
           onRenamed(editing.path, to)
           setSelected(to)
-          // Aufgeklappte Unterordner mitnehmen
+          // Carry expanded subfolders over
           setExpanded((prev) => new Set([...prev].map((d) => (d === editing.path || d.startsWith(editing.path + '/') ? to + d.slice(editing.path.length) : d))))
           await load(dirname(editing.path))
           await load(dirname(to))
@@ -143,7 +144,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
         const path = `${editing.parent}/${clean}`
         if (editing.mode === 'new-file') await window.api.fs.createFile(path)
         else await window.api.fs.createDir(path)
-        // „ordner/datei.ts“ legt Zwischenordner an – die aufklappen
+        // “folder/file.ts” creates intermediate folders – expand them
         const dirs: string[] = []
         for (let d = editing.mode === 'new-file' ? dirname(path) : path; d.length > editing.parent.length; d = dirname(d)) dirs.push(d)
         setExpanded((prev) => new Set([...prev, editing.parent, ...dirs]))
@@ -162,14 +163,14 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
   const remove = async (path: string): Promise<void> => {
     setMenu(null)
     if (path === root) return
-    if (!confirm(`„${basename(path)}“ in den Papierkorb verschieben?`)) return
+    if (!confirm(t('Move “{name}” to the trash?', { name: basename(path) }))) return
     try {
       await window.api.fs.trash(path)
       onDeleted(path)
       if (selected === path) setSelected(null)
       await load(dirname(path))
     } catch (err) {
-      alert(`Löschen fehlgeschlagen:\n${err}`)
+      alert(`${t('Deleting failed:')}\n${err}`)
     }
   }
 
@@ -184,7 +185,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
     }
   }
 
-  // Kontextmenü schließen bei Klick daneben oder Escape
+  // Close the context menu on a click elsewhere or Escape
   useEffect(() => {
     if (!menu) return
     const close = (): void => setMenu(null)
@@ -262,7 +263,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
   const m = menu
   const menuDir = m ? (m.entry ? (m.entry.isDir ? m.entry.path : dirname(m.entry.path)) : root) : root
   const rel = (p: string): string => p.slice(root.length + 1) || '.'
-  const revealLabel = window.api.platform === 'darwin' ? 'Im Finder zeigen' : 'Im Dateimanager zeigen'
+  const revealLabel = window.api.platform === 'darwin' ? t('Reveal in Finder') : t('Reveal in file manager')
 
   return (
     <div
@@ -272,7 +273,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
       onKeyDown={onKeyDown}
       onContextMenu={(e) => openMenu(e, null)}
       onClick={(e) => {
-        // Klick auf freie Fläche: Auswahl aufheben, damit „Neue Datei“ ins Hauptverzeichnis geht
+        // Click on empty space: clear the selection so “New File” goes to the root folder
         if (e.target === e.currentTarget) setSelected(null)
       }}
     >
@@ -280,8 +281,8 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
 
       {m && (
         <div className="context-menu" style={{ left: m.x, top: m.y }} onMouseDown={(e) => e.stopPropagation()}>
-          <button onClick={() => startNew('new-file', menuDir)}>Neue Datei …</button>
-          <button onClick={() => startNew('new-folder', menuDir)}>Neuer Ordner …</button>
+          <button onClick={() => startNew('new-file', menuDir)}>{t('New File …')}</button>
+          <button onClick={() => startNew('new-folder', menuDir)}>{t('New Folder …')}</button>
           <hr />
           {m.entry && !m.entry.isDir && (
             <button
@@ -290,7 +291,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
                 onOpen(m.entry!.path)
               }}
             >
-              Öffnen
+              {t('Open')}
             </button>
           )}
           <button
@@ -299,7 +300,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
               onOpenTerminal(menuDir)
             }}
           >
-            Im Terminal öffnen
+            {t('Open in Terminal')}
           </button>
           <button
             onClick={() => {
@@ -316,7 +317,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
               void window.api.copy(m.entry?.path ?? root)
             }}
           >
-            Pfad kopieren
+            {t('Copy Path')}
           </button>
           <button
             onClick={() => {
@@ -324,7 +325,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
               void window.api.copy(rel(m.entry?.path ?? root))
             }}
           >
-            Relativen Pfad kopieren
+            {t('Copy Relative Path')}
           </button>
           {m.entry && (
             <>
@@ -335,10 +336,10 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
                   setEditing({ mode: 'rename', path: m.entry!.path, isDir: m.entry!.isDir })
                 }}
               >
-                Umbenennen …<kbd>F2</kbd>
+                {t('Rename …')}<kbd>F2</kbd>
               </button>
               <button className="danger" onClick={() => void remove(m.entry!.path)}>
-                In den Papierkorb
+                {t('Move to Trash')}
               </button>
             </>
           )}
@@ -348,7 +349,7 @@ export default function FileTree({ root, activePath, onOpen, onRenamed, onDelete
   )
 }
 
-/** Eingabefeld im Baum – Enter übernimmt, Escape bricht ab, Fehler erscheinen darunter. */
+/** Input field in the tree – Enter applies, Escape cancels, errors appear below. */
 function NameInput({
   initial,
   selectStem = false,
@@ -369,7 +370,7 @@ function NameInput({
     const el = inputRef.current
     if (!el) return
     el.focus()
-    // Wie VS Code: beim Umbenennen nur den Namen ohne Endung markieren
+    // Like VS Code: when renaming only select the name without extension
     const dot = initial.lastIndexOf('.')
     el.setSelectionRange(0, selectStem && dot > 0 ? dot : initial.length)
   }, [initial, selectStem])

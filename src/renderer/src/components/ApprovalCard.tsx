@@ -1,28 +1,29 @@
 import { useMemo, useState } from 'react'
 import type { ApprovalAnswer, ApprovalRequest } from '../../../shared/types'
+import { t } from '../i18n'
 
 interface Props {
   req: ApprovalRequest
   onAnswer: (a: ApprovalAnswer) => void
 }
 
-/** Fragt den Nutzer, bevor der Agent eine Datei ändert oder einen Befehl ausführt. */
+/** Asks the user before the agent changes a file or runs a command. */
 export default function ApprovalCard({ req, onAnswer }: Props): React.JSX.Element {
   const [reason, setReason] = useState('')
 
   const title =
     req.kind === 'command'
-      ? 'Befehl ausführen?'
+      ? t('Run command?')
       : req.kind === 'edit'
-        ? `Datei ändern: ${req.relPath}`
+        ? t('Change file: {file}', { file: req.relPath ?? '' })
         : req.isNew
-          ? `Neue Datei anlegen: ${req.relPath}`
-          : `Datei überschreiben: ${req.relPath}`
+          ? t('Create new file: {file}', { file: req.relPath ?? '' })
+          : t('Overwrite file: {file}', { file: req.relPath ?? '' })
 
   return (
     <div className={`approval ${req.danger ? 'danger' : ''}`}>
       <div className="approval-title">{title}</div>
-      {req.danger && <div className="approval-danger">⚠ {req.danger} – bitte genau prüfen.</div>}
+      {req.danger && <div className="approval-danger">⚠ {t('{reason} – please check carefully.', { reason: req.danger })}</div>}
 
       {req.kind === 'command' ? (
         <pre className="approval-command">$ {req.command}</pre>
@@ -32,25 +33,25 @@ export default function ApprovalCard({ req, onAnswer }: Props): React.JSX.Elemen
 
       <input
         className="approval-reason"
-        placeholder="Optional: Hinweis ans Modell, z. B. warum nicht"
+        placeholder={t('Optional: note to the model, e.g. why not')}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && onAnswer({ id: req.id, approved: false, reason: reason.trim() || undefined })}
       />
       <div className="approval-actions">
         <button className="btn primary" onClick={() => onAnswer({ id: req.id, approved: true })}>
-          Erlauben
+          {t('Allow')}
         </button>
         <button className="btn" onClick={() => onAnswer({ id: req.id, approved: false, reason: reason.trim() || undefined })}>
-          Ablehnen
+          {t('Decline')}
         </button>
         {!req.danger && (
           <button
             className="link-btn"
-            title="Gleichartige Aktionen bis zum nächsten neuen Chat ohne Nachfrage erlauben"
+            title={t('Allow similar actions without asking until the next new chat')}
             onClick={() => onAnswer({ id: req.id, approved: true, always: true })}
           >
-            {req.kind === 'command' ? 'Befehle in diesem Chat immer erlauben' : 'Dateiänderungen in diesem Chat immer erlauben'}
+            {req.kind === 'command' ? t('Always allow commands in this chat') : t('Always allow file changes in this chat')}
           </button>
         )}
       </div>
@@ -60,11 +61,11 @@ export default function ApprovalCard({ req, onAnswer }: Props): React.JSX.Elemen
 
 type Line = { type: ' ' | '+' | '-'; text: string } | { type: '…'; count: number }
 
-/** Zeilenweiser Diff (längste gemeinsame Teilfolge), unveränderte Blöcke werden eingeklappt. */
+/** Line-by-line diff (longest common subsequence), unchanged blocks are collapsed. */
 function lineDiff(before: string, after: string): Line[] {
   const a = before === '' ? [] : before.split('\n')
   const b = after.split('\n')
-  // Bei sehr großen Dateien wäre die Tabelle zu teuer – dann einfach alt gegen neu zeigen
+  // For very large files the table would be too expensive – then just show old against new
   if (a.length * b.length > 4_000_000) {
     return [...a.map((text) => ({ type: '-' as const, text })), ...b.map((text) => ({ type: '+' as const, text }))]
   }
@@ -88,7 +89,7 @@ function lineDiff(before: string, after: string): Line[] {
   while (i < n) out.push({ type: '-', text: a[i++] })
   while (j < m) out.push({ type: '+', text: b[j++] })
 
-  // Nur 3 Zeilen Kontext um Änderungen herum zeigen
+  // Only show 3 lines of context around changes
   const keep = out.map(() => false)
   out.forEach((l, k) => {
     if (l.type !== ' ') for (let d = -3; d <= 3; d++) if (out[k + d]) keep[k + d] = true
@@ -119,7 +120,7 @@ function Diff({ before, after }: { before: string; after: string }): React.JSX.E
         {lines.map((l, k) =>
           l.type === '…' ? (
             <div key={k} className="diff-skip">
-              ⋯ {l.count} unveränderte Zeilen
+              ⋯ {t('{count} unchanged lines', { count: l.count })}
             </div>
           ) : (
             <div key={k} className={l.type === '+' ? 'diff-add' : l.type === '-' ? 'diff-del' : ''}>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GitFileStatus, GitHubAccount, GitStatus } from '../../../shared/types'
 import { Icon } from './Icon'
+import { t } from '../i18n'
 
 interface Props {
   root: string | null
@@ -11,15 +12,15 @@ interface Props {
 const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=repo&description=Lokal%20IDE'
 
 const STATUS_LABEL: Record<GitFileStatus, { letter: string; title: string }> = {
-  modified: { letter: 'M', title: 'Geändert' },
-  added: { letter: 'A', title: 'Hinzugefügt' },
-  deleted: { letter: 'D', title: 'Gelöscht' },
-  renamed: { letter: 'R', title: 'Umbenannt' },
-  untracked: { letter: 'U', title: 'Neu (noch nicht versioniert)' },
-  conflict: { letter: '!', title: 'Konflikt' }
+  modified: { letter: 'M', title: 'Modified' },
+  added: { letter: 'A', title: 'Added' },
+  deleted: { letter: 'D', title: 'Deleted' },
+  renamed: { letter: 'R', title: 'Renamed' },
+  untracked: { letter: 'U', title: 'New (not versioned yet)' },
+  conflict: { letter: '!', title: 'Conflict' }
 }
 
-/** IPC-Fehler enthalten ein technisches Präfix – nur die eigentliche Meldung zeigen. */
+/** IPC errors contain a technical prefix – only show the actual message. */
 function errorText(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   return msg.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -42,7 +43,7 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  // Abgewählte Dateien merken – neue Änderungen sind so automatisch ausgewählt
+  // Remember deselected files – so new changes are selected automatically
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
 
   const refresh = useCallback(async () => {
@@ -54,7 +55,7 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
     }
   }, [root])
 
-  // Status regelmäßig und beim Zurückkehren ins Fenster aktualisieren
+  // Refresh the status regularly and when returning to the window
   useEffect(() => {
     setStatus(null)
     void refresh()
@@ -70,7 +71,7 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
     window.api.github.account().then(setAccount).catch(() => setAccount(null))
   }, [])
 
-  /** Führt eine Aktion aus, zeigt Fortschritt und Fehler an und lädt danach den Status neu. */
+  /** Runs an action, shows progress and errors and reloads the status afterwards. */
   const run = async (label: string, action: () => Promise<unknown>, success?: string): Promise<boolean> => {
     setBusy(label)
     setError(null)
@@ -91,9 +92,9 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
   if (!root) {
     return (
       <div className="empty-hint">
-        <p>Öffne einen Ordner, um Git zu nutzen.</p>
+        <p>{t('Open a folder to use Git.')}</p>
         <button className="btn primary" onClick={onOpenFolder}>
-          Ordner öffnen
+          {t('Open Folder')}
         </button>
       </div>
     )
@@ -103,28 +104,28 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
     <>
       {busy && <div className="git-msg busy">{busy} …</div>}
       {error && (
-        <div className="git-msg err" onClick={() => setError(null)} title="Klicken zum Schließen">
+        <div className="git-msg err" onClick={() => setError(null)} title={t('Click to close')}>
           {error}
         </div>
       )}
       {notice && (
-        <div className="git-msg ok" onClick={() => setNotice(null)} title="Klicken zum Schließen">
+        <div className="git-msg ok" onClick={() => setNotice(null)} title={t('Click to close')}>
           {notice}
         </div>
       )}
     </>
   )
 
-  if (!status) return <div className="empty-hint">Lade …</div>
+  if (!status) return <div className="empty-hint">{t('Loading …')}</div>
 
   if (!status.isRepo) {
     return (
       <div className="git-panel">
         {messages}
         <div className="empty-hint">
-          <p>Dieser Ordner ist noch kein Git-Repository.</p>
-          <button className="btn primary" disabled={!!busy} onClick={() => run('Erstelle Repository', () => window.api.git.init(root))}>
-            Git-Repository erstellen
+          <p>{t('This folder is not a Git repository yet.')}</p>
+          <button className="btn primary" disabled={!!busy} onClick={() => run(t('Creating repository'), () => window.api.git.init(root))}>
+            {t('Create Git repository')}
           </button>
         </div>
       </div>
@@ -145,9 +146,9 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
 
   const doCommit = async (): Promise<void> => {
     const ok = await run(
-      'Committe',
+      t('Committing'),
       () => window.api.git.commit(dir, message, selected.map((f) => f.path)),
-      `${selected.length} Datei${selected.length === 1 ? '' : 'en'} committet.`
+      selected.length === 1 ? t('1 file committed.') : t('{count} files committed.', { count: selected.length })
     )
     if (ok) {
       setMessage('')
@@ -159,39 +160,39 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
 
   return (
     <div className="git-panel">
-      {/* Branch und Synchronisierung */}
+      {/* Branch and sync */}
       <div className="git-branch">
         <Icon name="git" size={14} />
-        <span className="git-branch-name" title={status.upstream ?? 'Kein Upstream'}>
+        <span className="git-branch-name" title={status.upstream ?? t('No upstream')}>
           {status.branch}
         </span>
         <span className="spacer" />
         {status.remoteUrl && (
           <>
-            <button className="icon-btn" title="Pull – Änderungen von GitHub holen" disabled={!!busy} onClick={() => run('Hole Änderungen', () => window.api.git.pull(dir), 'Auf dem neuesten Stand.')}>
+            <button className="icon-btn" title={t('Pull – fetch changes from GitHub')} disabled={!!busy} onClick={() => run(t('Fetching changes'), () => window.api.git.pull(dir), t('Up to date.'))}>
               <Icon name="arrow-down" size={15} />
               {status.behind > 0 && <span className="git-count">{status.behind}</span>}
             </button>
-            <button className="icon-btn" title="Push – Commits zu GitHub hochladen" disabled={!!busy || !status.hasCommits} onClick={() => run('Lade hoch', () => window.api.git.push(dir), 'Hochgeladen.')}>
+            <button className="icon-btn" title={t('Push – upload commits to GitHub')} disabled={!!busy || !status.hasCommits} onClick={() => run(t('Uploading'), () => window.api.git.push(dir), t('Uploaded.'))}>
               <Icon name="arrow-up" size={15} />
               {(status.ahead > 0 || !status.upstream) && <span className="git-count">{status.upstream ? status.ahead : '•'}</span>}
             </button>
           </>
         )}
-        <button className="icon-btn" title="Aktualisieren" onClick={() => void refresh()}>
+        <button className="icon-btn" title={t('Refresh')} onClick={() => void refresh()}>
           <Icon name="refresh" size={15} />
         </button>
       </div>
 
       {messages}
 
-      {!status.identity && <IdentityForm busy={!!busy} onSave={(n, e) => run('Speichere Autor', () => window.api.git.setIdentity(dir, n, e))} />}
+      {!status.identity && <IdentityForm busy={!!busy} onSave={(n, e) => run(t('Saving author'), () => window.api.git.setIdentity(dir, n, e))} />}
 
       {/* Commit */}
       <div className="git-commit">
         <textarea
           rows={3}
-          placeholder="Commit-Nachricht (⌘↩ zum Committen)"
+          placeholder={t('Commit message (⌘↩ to commit)')}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {
@@ -203,9 +204,9 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
         </button>
       </div>
 
-      {/* Änderungen */}
+      {/* Changes */}
       <div className="git-section-title">
-        <label className="git-check" title="Alle aus-/abwählen">
+        <label className="git-check" title={t('Select/deselect all')}>
           <input
             type="checkbox"
             checked={status.files.length > 0 && allSelected}
@@ -213,10 +214,10 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
             onChange={() => setExcluded(allSelected ? new Set(status.files.map((f) => f.path)) : new Set())}
           />
         </label>
-        Änderungen <span className="git-count">{status.files.length}</span>
+        {t('Changes')} <span className="git-count">{status.files.length}</span>
       </div>
       <div className="git-files">
-        {status.files.length === 0 && <div className="empty-hint">Keine Änderungen.</div>}
+        {status.files.length === 0 && <div className="empty-hint">{t('No changes.')}</div>}
         {status.files.map((f) => {
           const slash = f.rel.lastIndexOf('/')
           const label = STATUS_LABEL[f.status]
@@ -230,7 +231,7 @@ export default function GitPanel({ root, onOpenFolder, onOpenFile }: Props): Rea
                 {f.rel.slice(slash + 1)}
                 {slash > 0 && <span className="git-file-dir">{f.rel.slice(0, slash)}</span>}
               </span>
-              <span className={`git-status s-${f.status}`} title={label.title}>
+              <span className={`git-status s-${f.status}`} title={t(label.title)}>
                 {label.letter}
               </span>
             </div>
@@ -255,11 +256,11 @@ function IdentityForm({ busy, onSave }: { busy: boolean; onSave: (name: string, 
   const [email, setEmail] = useState('')
   return (
     <div className="git-box">
-      <p>Wer soll als Autor in den Commits stehen?</p>
-      <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-      <input placeholder="E-Mail" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <p>{t('Who should be the author of the commits?')}</p>
+      <input placeholder={t('Name')} value={name} onChange={(e) => setName(e.target.value)} />
+      <input placeholder={t('Email')} value={email} onChange={(e) => setEmail(e.target.value)} />
       <button className="btn" disabled={busy || !name.trim() || !email.trim()} onClick={() => onSave(name.trim(), email.trim())}>
-        Speichern
+        {t('Save')}
       </button>
     </div>
   )
@@ -281,7 +282,7 @@ function GitHubSection({
   onAccount: (a: GitHubAccount | null) => void
 }): React.JSX.Element {
   const [token, setToken] = useState('')
-  const [repo, setRepo] = useState(dir.split('/').pop()?.replace(/\s+/g, '-') ?? 'projekt')
+  const [repo, setRepo] = useState(dir.split('/').pop()?.replace(/\s+/g, '-') ?? 'project')
   const [isPrivate, setIsPrivate] = useState(true)
   const [editRemote, setEditRemote] = useState(false)
   const [remoteInput, setRemoteInput] = useState('')
@@ -291,13 +292,13 @@ function GitHubSection({
   }, [])
 
   const connect = (): Promise<boolean> =>
-    run('Verbinde mit GitHub', async () => {
+    run(t('Connecting to GitHub'), async () => {
       onAccount(await window.api.github.connect(token))
       setToken('')
-    }, 'Mit GitHub verbunden.')
+    }, t('Connected to GitHub.'))
 
   const saveRemote = async (): Promise<void> => {
-    const ok = await run('Speichere Remote', () => window.api.git.setRemote(dir, remoteInput.trim()), 'Remote gespeichert.')
+    const ok = await run(t('Saving remote'), () => window.api.git.setRemote(dir, remoteInput.trim()), t('Remote saved.'))
     if (ok) setEditRemote(false)
   }
 
@@ -307,38 +308,38 @@ function GitHubSection({
     <div className="git-github">
       <div className="git-section-title">GitHub</div>
 
-      {/* Konto */}
+      {/* Account */}
       {account === undefined ? null : account ? (
         <div className="git-account">
           <img src={account.avatarUrl} alt="" />
           <span>
-            Angemeldet als <b>{account.login}</b>
+            {t('Signed in as')} <b>{account.login}</b>
           </span>
           <span className="spacer" />
           <button
             className="link-btn"
             disabled={busy}
-            onClick={() => run('Melde ab', async () => {
+            onClick={() => run(t('Signing out'), async () => {
               await window.api.github.disconnect()
               onAccount(null)
             })}
           >
-            Abmelden
+            {t('Sign out')}
           </button>
         </div>
       ) : (
         <div className="git-box">
           <p>
-            Verbinde dein GitHub-Konto mit einem Zugangs-Token. Er wird {storage || 'im Schlüsselbund des Systems'} gespeichert.
+            {t('Connect your GitHub account with an access token. It will be stored {where}.', { where: storage || t('in the system keychain') })}
           </p>
           <ol>
             <li>
               <button className="text-link" onClick={() => window.api.openUrl(TOKEN_URL)}>
-                Token auf GitHub erstellen
+                {t('Create token on GitHub')}
               </button>{' '}
-              (Haken bei „repo“ ist schon gesetzt)
+              {t('(the “repo” checkbox is already ticked)')}
             </li>
-            <li>Token kopieren und hier einfügen:</li>
+            <li>{t('Copy the token and paste it here:')}</li>
           </ol>
           <input
             type="password"
@@ -348,7 +349,7 @@ function GitHubSection({
             onKeyDown={(e) => e.key === 'Enter' && token.trim() && void connect()}
           />
           <button className="btn primary" disabled={busy || !token.trim()} onClick={connect}>
-            Verbinden
+            {t('Connect')}
           </button>
         </div>
       )}
@@ -356,7 +357,7 @@ function GitHubSection({
       {/* Remote */}
       {status.remoteUrl && !editRemote ? (
         <div className="git-remote">
-          <span className="muted">Repository:</span>{' '}
+          <span className="muted">{t('Repository:')}</span>{' '}
           {web ? (
             <button className="text-link" onClick={() => window.api.openUrl(web)}>
               {repoName(status.remoteUrl)}
@@ -371,35 +372,35 @@ function GitHubSection({
               setEditRemote(true)
             }}
           >
-            Ändern
+            {t('Change')}
           </button>
         </div>
       ) : (
         <>
           {!status.remoteUrl && account && (
             <div className="git-box">
-              <p>Neues Repository auf GitHub anlegen und den Code hochladen:</p>
-              <input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="Name des Repositorys" />
+              <p>{t('Create a new repository on GitHub and upload the code:')}</p>
+              <input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={t('Repository name')} />
               <label className="git-check-label">
-                <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} /> Privat
+                <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} /> {t('Private')}
               </label>
               <button
                 className="btn primary"
                 disabled={busy || !repo.trim()}
                 onClick={() =>
                   run(
-                    'Veröffentliche auf GitHub',
+                    t('Publishing to GitHub'),
                     () => window.api.github.publish(dir, repo.trim(), isPrivate),
-                    status.hasCommits ? 'Auf GitHub veröffentlicht.' : 'Repository angelegt. Mach einen Commit und lade ihn hoch.'
+                    status.hasCommits ? t('Published to GitHub.') : t('Repository created. Make a commit and push it.')
                   )
                 }
               >
-                Auf GitHub veröffentlichen
+                {t('Publish to GitHub')}
               </button>
             </div>
           )}
           <div className="git-box">
-            <p>{status.remoteUrl ? 'Remote-URL ändern:' : 'Oder ein vorhandenes Repository verknüpfen:'}</p>
+            <p>{status.remoteUrl ? t('Change remote URL:') : t('Or link an existing repository:')}</p>
             <input
               placeholder="https://github.com/name/repo.git"
               value={remoteInput}
@@ -407,11 +408,11 @@ function GitHubSection({
             />
             <div className="git-row">
               <button className="btn" disabled={busy || !remoteInput.trim()} onClick={saveRemote}>
-                Speichern
+                {t('Save')}
               </button>
               {editRemote && (
                 <button className="link-btn" onClick={() => setEditRemote(false)}>
-                  Abbrechen
+                  {t('Cancel')}
                 </button>
               )}
             </div>

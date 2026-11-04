@@ -1,13 +1,13 @@
 #!/bin/sh
-# Baut die App und installiert sie nach ~/Applications.
-# Signiert wird erst dort: Auf dem iCloud-synchronisierten Schreibtisch hängt macOS
-# sofort wieder Datei-Attribute an, und codesign bricht dann ab.
+# Builds the app and installs it to ~/Applications.
+# Signing happens only there: on an iCloud-synced Desktop macOS immediately re-attaches
+# file attributes, and codesign then aborts.
 #
-# LOKAL_IDE_BUILD_ONLY=1 baut nur (für Updates aus der laufenden App) – das Austauschen
-# übernimmt dann scripts/mac-install-app.sh nach dem Beenden.
+# LOKAL_IDE_BUILD_ONLY=1 only builds (for updates from the running app) – swapping the app
+# is then done by scripts/mac-install-app.sh after quitting.
 set -e
 
-# Der Monaco-Editor ist groß – beim Bündeln braucht Node mehr Speicher als die Vorgabe
+# The Monaco editor is big – bundling needs more memory than Node's default
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 
 if [ "$(uname -m)" = "arm64" ]; then
@@ -23,13 +23,13 @@ node scripts/licenses.mjs
 electron-vite build
 
 if [ -n "$LOKAL_IDE_BUILD_ONLY" ]; then
-  # Eigener Ausgabeordner: eine laufende App in dist/ wird beim Update nicht angefasst
+  # Separate output folder: a running app in dist/ is not touched by the update
   electron-builder --mac dir $ARCH -c.directories.output=dist/update
-  echo "Gebaut: dist/update/${SRC#dist/}"
+  echo "Built: dist/update/${SRC#dist/}"
   exit 0
 fi
 
 electron-builder --mac dir $ARCH
 
 sh scripts/mac-install-app.sh "$SRC" "$DEST"
-echo "Fertig: $DEST"
+echo "Done: $DEST"

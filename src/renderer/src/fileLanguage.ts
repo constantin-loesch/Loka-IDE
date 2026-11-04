@@ -1,7 +1,8 @@
-// Ordnet Dateien einer Monaco-Sprache zu und baut eindeutige Modell-URIs.
+// Maps files to a Monaco language and builds unique model URIs.
 import { languages, Uri } from 'monaco-editor'
+import { locale } from './i18n'
 
-/** Dateinamen ohne (eindeutige) Endung, die Monaco nicht selbst kennt. */
+/** File names without a (unique) extension that Monaco doesn't know itself. */
 const BY_NAME: Record<string, string> = {
   '.gitignore': 'shell',
   '.dockerignore': 'shell',
@@ -25,7 +26,7 @@ const BY_NAME: Record<string, string> = {
   jenkinsfile: 'java'
 }
 
-/** Endungen, die Monaco nicht kennt, aber einer ähnlichen Sprache entsprechen. */
+/** Extensions Monaco doesn't know but that correspond to a similar language. */
 const BY_EXT: Record<string, string> = {
   vue: 'html',
   svelte: 'html',
@@ -72,7 +73,7 @@ export function detectLanguage(path: string): string {
   return 'plaintext'
 }
 
-/** Monaco-Modelle werden über diese URI gefunden – auch bei Leerzeichen, # oder ? im Pfad. */
+/** Monaco models are found via this URI – even with spaces, # or ? in the path. */
 export function modelUri(path: string): Uri {
   return Uri.file(path)
 }
@@ -86,5 +87,5 @@ export function formatSize(bytes: number): string {
     v /= 1024
     i++
   }
-  return `${v.toLocaleString('de', { maximumFractionDigits: 1 })} ${units[i]}`
+  return `${v.toLocaleString(locale, { maximumFractionDigits: 1 })} ${units[i]}`
 }

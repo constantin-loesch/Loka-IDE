@@ -1,15 +1,16 @@
-// Hardware-Einschätzung: Passt ein Modell in den Speicher und wie schnell läuft es ungefähr?
-// Faustregel: Pro erzeugtem Wort müssen alle aktiven Gewichte einmal aus dem Speicher gelesen werden –
-// das Tempo hängt also vor allem an der Speicherbandbreite.
+// Hardware assessment: does a model fit into memory and roughly how fast does it run?
+// Rule of thumb: for every generated word all active weights have to be read from memory once –
+// so the speed depends mostly on the memory bandwidth.
 import { readFileSync } from 'node:fs'
 import { cpus, platform, totalmem } from 'node:os'
 import type { Fit, HardwareInfo } from '../shared/types'
+import { t } from './i18n'
 
 const GB = 1024 ** 3
 
-/** Speicherbandbreite in GB/s für bekannte Grafikkarten (grobe Herstellerangaben). */
+/** Memory bandwidth in GB/s for known graphics cards (rough manufacturer figures). */
 const GPU_BANDWIDTH: [RegExp, number][] = [
-  // NVIDIA – Rechenzentrum
+  // NVIDIA – data center
   [/H200/i, 4800],
   [/H100/i, 3350],
   [/B200/i, 8000],
@@ -48,7 +49,7 @@ const GPU_BANDWIDTH: [RegExp, number][] = [
   [/6900|6800/i, 512]
 ]
 
-/** Bandbreite des Arbeitsspeichers. Apple Silicon teilt ihn mit der GPU („Unified Memory“). */
+/** Bandwidth of the main memory. Apple Silicon shares it with the GPU (“unified memory”). */
 function ramBandwidth(cpu: string): number {
   const apple: [RegExp, number][] = [
     [/M\d Ultra/, 800],
@@ -65,18 +66,18 @@ function ramBandwidth(cpu: string): number {
   ]
   const hit = apple.find(([re]) => re.test(cpu))
   if (hit) return hit[1]
-  // PCs: Dual-Channel DDR5 ≈ 80 GB/s, DDR4 ≈ 40 GB/s – Server mit vielen Kanälen deutlich mehr
+  // PCs: dual-channel DDR5 ≈ 80 GB/s, DDR4 ≈ 40 GB/s – servers with many channels considerably more
   if (/EPYC|Xeon|Threadripper/i.test(cpu)) return 200
   return 60
 }
 
 /**
- * NVIDIA Jetson: CPU und GPU teilen sich den Arbeitsspeicher (wie bei Apple Silicon).
- * Das Modell steht in /proc/device-tree/model, z. B. „NVIDIA Jetson AGX Orin Developer Kit“.
+ * NVIDIA Jetson: CPU and GPU share the main memory (like Apple Silicon).
+ * The model is in /proc/device-tree/model, e.g. “NVIDIA Jetson AGX Orin Developer Kit”.
  */
 export interface JetsonInfo {
   model: string
-  /** Speicherbandbreite in GB/s (Herstellerangabe) */
+  /** Memory bandwidth in GB/s (manufacturer figure) */
   bandwidthGBs: number
 }
 
@@ -89,13 +90,13 @@ export function jetson(): JetsonInfo | null {
   try {
     model = readFileSync('/proc/device-tree/model', 'utf8').replace(/\0/g, '').trim()
   } catch {
-    /* kein Device-Tree – kein Jetson */
+    /* no device tree – not a Jetson */
   }
   let tegra = false
   try {
     tegra = readFileSync('/etc/nv_tegra_release', 'utf8').length > 0
   } catch {
-    /* fehlt */
+    /* missing */
   }
   if (!/jetson/i.test(model) && !tegra) return null
   const ramGB = totalmem() / GB
@@ -119,7 +120,7 @@ export function describeHardware(gpu: HardwareInfo['gpu'], gpuNames: string[], v
   const name = gpuNames.join(', ')
   const j = jetson()
   if (j) {
-    // Gemeinsamer Speicher: Bandbreite gilt für CPU und GPU gleichermaßen
+    // Shared memory: the bandwidth applies to CPU and GPU alike
     return {
       platform: platform(),
       cpu: `${j.model} (${cpu})`,
@@ -132,7 +133,7 @@ export function describeHardware(gpu: HardwareInfo['gpu'], gpuNames: string[], v
       ramBandwidthGBs: j.bandwidthGBs
     }
   }
-  // DGX Spark (GB10) teilt den Speicher ebenfalls
+  // DGX Spark (GB10) shares the memory as well
   const spark = /GB10|DGX Spark/i.test(name)
   if (spark) unified = true
   const ram = spark ? 273 : ramBandwidth(cpu)
@@ -150,7 +151,7 @@ export function describeHardware(gpu: HardwareInfo['gpu'], gpuNames: string[], v
   }
 }
 
-/** Ersatz, solange llama.cpp noch nicht initialisiert ist (oder fehlschlägt). */
+/** Fallback while llama.cpp is not initialized yet (or fails). */
 export function fallbackHardware(): HardwareInfo {
   const mac = platform() === 'darwin'
   return describeHardware(mac ? 'metal' : 'cpu', [], 0, mac || !!jetson())
@@ -163,33 +164,33 @@ export interface Assessment {
 }
 
 /**
- * Passt eine Modelldatei auf diese Hardware, und wie schnell wird sie ungefähr?
- * activeFraction: Anteil der Gewichte, die pro Wort gerechnet werden (MoE < 1).
+ * Does a model file fit this hardware, and roughly how fast will it be?
+ * activeFraction: share of the weights computed per word (MoE < 1).
  */
 export function assess(sizeBytes: number, activeFraction: number, hw: HardwareInfo): Assessment {
-  const needed = sizeBytes * 1.2 + 0.5 * GB // Gewichte + Kontext/KV-Cache
+  const needed = sizeBytes * 1.2 + 0.5 * GB // weights + context/KV cache
   const activeBytes = sizeBytes * activeFraction
-  // In der Praxis erreicht man etwa 60 % der theoretischen Bandbreite
+  // In practice you get about 60 % of the theoretical bandwidth
   const speed = (bwGBs: number): number => (bwGBs * 1e9 * 0.6) / activeBytes
 
-  // Apple Silicon und reiner CPU-Betrieb: alles liegt im Arbeitsspeicher
+  // Apple Silicon, Jetson and pure CPU mode: everything lives in main memory
   if (hw.unifiedMemory || hw.gpu === 'cpu' || hw.vramBytes === 0) {
-    const fit: Fit = needed <= hw.ramBytes - 3.5 * GB ? 'gut' : needed <= hw.ramBytes - 1.5 * GB ? 'knapp' : 'zu-gross'
-    return { fit, tokensPerSec: fit === 'zu-gross' ? null : Math.max(1, Math.round(speed(hw.bandwidthGBs))) }
+    const fit: Fit = needed <= hw.ramBytes - 3.5 * GB ? 'good' : needed <= hw.ramBytes - 1.5 * GB ? 'tight' : 'too-large'
+    return { fit, tokensPerSec: fit === 'too-large' ? null : Math.max(1, Math.round(speed(hw.bandwidthGBs))) }
   }
 
-  // Eigene Grafikkarte (CUDA/Vulkan): am schnellsten, wenn alles in den Grafikspeicher passt
-  if (needed <= hw.vramBytes * 0.95) return { fit: 'gut', tokensPerSec: Math.max(1, Math.round(speed(hw.bandwidthGBs))) }
+  // Dedicated graphics card (CUDA/Vulkan): fastest when everything fits into graphics memory
+  if (needed <= hw.vramBytes * 0.95) return { fit: 'good', tokensPerSec: Math.max(1, Math.round(speed(hw.bandwidthGBs))) }
   if (needed <= hw.vramBytes + hw.ramBytes - 4 * GB) {
-    // Teil auf der GPU, Rest im Arbeitsspeicher – der langsame Teil bremst alles
+    // Part on the GPU, rest in main memory – the slow part slows everything down
     const onGpu = Math.min(1, (hw.vramBytes * 0.9) / sizeBytes)
     const secPerToken =
       (activeBytes * onGpu) / (hw.bandwidthGBs * 1e9 * 0.6) + (activeBytes * (1 - onGpu)) / (hw.ramBandwidthGBs * 1e9 * 0.6)
     return {
-      fit: 'knapp',
+      fit: 'tight',
       tokensPerSec: Math.max(1, Math.round(1 / secPerToken)),
-      note: `Passt nicht ganz in den Grafikspeicher (${Math.round(hw.vramBytes / GB)} GB) – ein Teil läuft auf der CPU, das bremst.`
+      note: t('Doesn\'t quite fit into graphics memory ({gb} GB) – part of it runs on the CPU, which slows it down.', { gb: Math.round(hw.vramBytes / GB) })
     }
   }
-  return { fit: 'zu-gross', tokensPerSec: null }
+  return { fit: 'too-large', tokensPerSec: null }
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { BuildTask, DevcontainerStatus, DevcontainerTemplate, TerminalTarget } from '../../../shared/types'
 import { Icon } from './Icon'
+import { t } from '../i18n'
 
 interface Props {
   root: string | null
@@ -8,10 +9,10 @@ interface Props {
   onRefreshStatus: () => void
   onOpenFolder: () => void
   onOpenFile: (path: string) => void
-  /** Befehl in einem neuen Terminal ausführen */
+  /** Run a command in a new terminal */
   onRun: (command: string, target: TerminalTarget, title: string) => void
   onNewTerminal: (target: TerminalTarget) => void
-  /** Ausgabe-Bereich zeigen (Container-Log) */
+  /** Show the output panel (container log) */
   onShowOutput: () => void
 }
 
@@ -33,15 +34,15 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
 
   const s = p.status
   const running = s?.state === 'running'
-  // Läuft der Container, Aufgaben standardmäßig dort ausführen
+  // If the container is running, run tasks there by default
   useEffect(() => setTarget(running ? 'container' : 'local'), [running])
 
   if (!p.root) {
     return (
       <div className="empty-hint">
-        <p>Kein Ordner geöffnet.</p>
+        <p>{t('No folder open.')}</p>
         <button className="btn primary" onClick={p.onOpenFolder}>
-          Ordner öffnen
+          {t('Open Folder')}
         </button>
       </div>
     )
@@ -66,36 +67,36 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
     void act(rebuild ? 'rebuild' : 'up', () => window.api.devcontainer.up(root, rebuild))
   }
 
-  const groups = [...new Set(tasks.map((t) => t.group))]
+  const groups = [...new Set(tasks.map((task) => task.group))]
 
   return (
     <div className="container-panel">
-      {/* ---------- Devcontainer ---------- */}
+      {/* ---------- Dev container ---------- */}
       <section>
-        <h3>Devcontainer</h3>
-        {!s && <p className="muted">Prüfe Docker …</p>}
+        <h3>{t('Dev container')}</h3>
+        {!s && <p className="muted">{t('Checking Docker …')}</p>}
 
         {s && s.docker === 'missing' && (
           <div className="notice warn">
-            Docker ist nicht installiert. Devcontainer brauchen{' '}
+            {t('Docker is not installed. Dev containers need')}{' '}
             <button className="link-btn inline" onClick={() => void window.api.openUrl('https://www.docker.com/products/docker-desktop/')}>
               Docker Desktop
             </button>{' '}
-            (oder Docker Engine, OrbStack, Colima).
+            {t('(or Docker Engine, OrbStack, Colima).')}
           </div>
         )}
         {s && s.docker === 'not-running' && (
           <div className="notice warn">
-            Docker läuft nicht. Starte Docker Desktop und klicke dann auf <i>Aktualisieren</i>.
+            {t('Docker is not running. Start Docker Desktop and then click')} <i>{t('Refresh')}</i>.
             {s.dockerMessage && <small>{s.dockerMessage}</small>}
           </div>
         )}
 
         {s && !s.configPath && (
           <>
-            <p className="muted">Dieses Projekt hat noch keinen Devcontainer. Lege einen an – mit Sprache, Build-Tools und Ports.</p>
+            <p className="muted">{t('This project has no dev container yet. Create one – with language, build tools and ports.')}</p>
             <button className="btn primary block" onClick={() => setDialog(true)}>
-              <Icon name="plus" size={14} /> Devcontainer anlegen …
+              <Icon name="plus" size={14} /> {t('Create dev container …')}
             </button>
           </>
         )}
@@ -107,7 +108,7 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
                 <Icon name="container" size={16} />
                 <b>{s.name ?? 'Dev Container'}</b>
                 <span className={`badge ${s.state}`}>
-                  {s.state === 'running' ? 'läuft' : s.state === 'starting' ? 'startet …' : s.state === 'stopped' ? 'gestoppt' : 'nicht gebaut'}
+                  {s.state === 'running' ? t('running') : s.state === 'starting' ? t('starting …') : s.state === 'stopped' ? t('stopped') : t('not built')}
                 </span>
               </div>
               {s.image && <div className="muted mono small">{s.image}</div>}
@@ -118,23 +119,23 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
             <div className="dc-actions">
               {s.state === 'starting' || busy === 'up' || busy === 'rebuild' ? (
                 <button className="btn" onClick={() => void window.api.devcontainer.cancel()}>
-                  <Icon name="stop" size={13} /> Abbrechen
+                  <Icon name="stop" size={13} /> {t('Cancel')}
                 </button>
               ) : running ? (
                 <button className="btn primary" onClick={() => p.onNewTerminal('container')}>
-                  <Icon name="terminal" size={14} /> Terminal im Container
+                  <Icon name="terminal" size={14} /> {t('Terminal in container')}
                 </button>
               ) : (
                 <button className="btn primary" disabled={s.docker !== 'ok' || !!busy} onClick={() => up(false)}>
-                  <Icon name="play" size={13} /> {s.state === 'stopped' ? 'Starten' : 'Bauen & starten'}
+                  <Icon name="play" size={13} /> {s.state === 'stopped' ? t('Start') : t('Build & start')}
                 </button>
               )}
-              <button className="btn" disabled={s.docker !== 'ok' || !!busy || s.state === 'starting'} onClick={() => up(true)} title="Container löschen und ohne Cache neu bauen">
-                <Icon name="refresh" size={13} /> Neu bauen
+              <button className="btn" disabled={s.docker !== 'ok' || !!busy || s.state === 'starting'} onClick={() => up(true)} title={t('Delete the container and rebuild it without cache')}>
+                <Icon name="refresh" size={13} /> {t('Rebuild')}
               </button>
               {running && (
                 <button className="btn" disabled={!!busy} onClick={() => void act('stop', () => window.api.devcontainer.stop(root))}>
-                  <Icon name="stop" size={13} /> Stoppen
+                  <Icon name="stop" size={13} /> {t('Stop')}
                 </button>
               )}
               {s.containerId && !running && (
@@ -142,10 +143,10 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
                   className="btn"
                   disabled={!!busy}
                   onClick={() => {
-                    if (confirm('Container löschen? Die Dateien im Projekt bleiben erhalten.')) void act('remove', () => window.api.devcontainer.remove(root))
+                    if (confirm(t('Delete the container? The files in the project are kept.'))) void act('remove', () => window.api.devcontainer.remove(root))
                   }}
                 >
-                  <Icon name="trash" size={13} /> Löschen
+                  <Icon name="trash" size={13} /> {t('Delete')}
                 </button>
               )}
               <button className="btn" onClick={() => p.onOpenFile(s.configPath!)}>
@@ -154,46 +155,46 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
             </div>
           </>
         )}
-        {busy === 'stop' && <p className="muted">Stoppe Container …</p>}
+        {busy === 'stop' && <p className="muted">{t('Stopping container …')}</p>}
         {error && <div className="notice err">{error}</div>}
         <button className="link-btn" onClick={p.onRefreshStatus}>
-          <Icon name="refresh" size={12} /> Aktualisieren
+          <Icon name="refresh" size={12} /> {t('Refresh')}
         </button>
       </section>
 
-      {/* ---------- Build-Aufgaben ---------- */}
+      {/* ---------- Build tasks ---------- */}
       <section>
         <div className="section-head">
-          <h3>Build &amp; Aufgaben</h3>
-          <button className="icon-btn" title="Aufgaben neu erkennen" onClick={loadTasks}>
+          <h3>{t('Build & Tasks')}</h3>
+          <button className="icon-btn" title={t('Detect tasks again')} onClick={loadTasks}>
             <Icon name="refresh" size={14} />
           </button>
         </div>
         <div className="segmented">
           <button className={target === 'local' ? 'active' : ''} onClick={() => setTarget('local')}>
-            Lokal
+            {t('Local')}
           </button>
           <button
             className={target === 'container' ? 'active' : ''}
             disabled={!running}
-            title={running ? '' : 'Devcontainer läuft nicht'}
+            title={running ? '' : t('Dev container is not running')}
             onClick={() => setTarget('container')}
           >
-            Im Container
+            {t('In container')}
           </button>
         </div>
 
-        {tasks.length === 0 && <p className="muted">Keine Build-Dateien erkannt (package.json, Makefile, Cargo.toml, go.mod, pom.xml, CMakeLists.txt …).</p>}
+        {tasks.length === 0 && <p className="muted">{t('No build files detected (package.json, Makefile, Cargo.toml, go.mod, pom.xml, CMakeLists.txt …).')}</p>}
         {groups.map((g) => (
           <div key={g} className="task-group">
             <div className="task-group-name">{g}</div>
             {tasks
-              .filter((t) => t.group === g)
-              .map((t) => (
-                <button key={t.command} className="task-row" title={t.command} onClick={() => p.onRun(t.command, target, t.label)}>
+              .filter((task) => task.group === g)
+              .map((task) => (
+                <button key={task.command} className="task-row" title={task.command} onClick={() => p.onRun(task.command, target, task.label)}>
                   <Icon name="play" size={11} />
-                  <span>{t.label}</span>
-                  <code>{t.command}</code>
+                  <span>{t(task.label)}</span>
+                  <code>{task.command}</code>
                 </button>
               ))}
           </div>
@@ -206,8 +207,8 @@ export default function ContainerPanel(p: Props): React.JSX.Element {
             if (custom.trim()) p.onRun(custom.trim(), target, custom.trim().split(' ')[0])
           }}
         >
-          <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="Eigener Befehl, z. B. make release" spellCheck={false} />
-          <button className="icon-btn" type="submit" title="Ausführen">
+          <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder={t('Own command, e.g. make release')} spellCheck={false} />
+          <button className="icon-btn" type="submit" title={t('Run')}>
             <Icon name="play" size={13} />
           </button>
         </form>
@@ -238,7 +239,7 @@ function DevcontainerDialog({
   onClose: () => void
   onCreated: (path: string, start: boolean) => void
 }): React.JSX.Element {
-  const [t, setT] = useState<DevcontainerTemplate | null>(null)
+  const [tpl, setTpl] = useState<DevcontainerTemplate | null>(null)
   const [opts, setOpts] = useState<Awaited<ReturnType<typeof window.api.devcontainer.options>> | null>(null)
   const [ports, setPorts] = useState('')
   const [preview, setPreview] = useState('')
@@ -247,14 +248,14 @@ function DevcontainerDialog({
   useEffect(() => {
     void window.api.devcontainer.options().then(setOpts)
     void window.api.devcontainer.suggest(root).then((s) => {
-      setT(s)
+      setTpl(s)
       setPorts(s.forwardPorts.join(', '))
     })
   }, [root])
 
   useEffect(() => {
-    if (t) void window.api.devcontainer.preview(t).then(setPreview)
-  }, [t])
+    if (tpl) void window.api.devcontainer.preview(tpl).then(setPreview)
+  }, [tpl])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -264,13 +265,13 @@ function DevcontainerDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  if (!t || !opts) return <div className="modal-backdrop" />
+  if (!tpl || !opts) return <div className="modal-backdrop" />
 
-  const update = (patch: Partial<DevcontainerTemplate>): void => setT({ ...t, ...patch })
+  const update = (patch: Partial<DevcontainerTemplate>): void => setTpl({ ...tpl, ...patch })
 
   const create = async (start: boolean): Promise<void> => {
     try {
-      const path = await window.api.devcontainer.create(root, t)
+      const path = await window.api.devcontainer.create(root, tpl)
       onCreated(path, start)
     } catch (err) {
       setError(errText(err))
@@ -281,47 +282,47 @@ function DevcontainerDialog({
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-label="Devcontainer anlegen">
         <div className="modal-head">
-          <b>Devcontainer anlegen</b>
-          <button className="icon-btn" onClick={onClose} title="Schließen">
+          <b>{t('Create dev container')}</b>
+          <button className="icon-btn" onClick={onClose} title={t('Close')}>
             <Icon name="close" size={16} />
           </button>
         </div>
         <div className="modal-body">
           <div className="modal-form">
             <label className="field">
-              <span>Name</span>
-              <input value={t.name} onChange={(e) => update({ name: e.target.value })} />
+              <span>{t('Name')}</span>
+              <input value={tpl.name} onChange={(e) => update({ name: e.target.value })} />
             </label>
             <label className="field">
-              <span>Basis-Image</span>
-              <select value={t.image} onChange={(e) => update({ image: e.target.value })}>
+              <span>{t('Base image')}</span>
+              <select value={tpl.image} onChange={(e) => update({ image: e.target.value })}>
                 {Object.entries(opts.images).map(([k, v]) => (
                   <option key={k} value={k}>
-                    {v.label}
+                    {t(v.label)}
                   </option>
                 ))}
               </select>
             </label>
             <div className="field">
-              <span>Build-Tools &amp; Features</span>
+              <span>{t('Build tools & features')}</span>
               <div className="feature-grid">
                 {Object.entries(opts.features).map(([k, v]) => (
                   <label key={k} className="check">
                     <input
                       type="checkbox"
-                      checked={t.features.includes(k)}
-                      onChange={(e) => update({ features: e.target.checked ? [...t.features, k] : t.features.filter((f) => f !== k) })}
+                      checked={tpl.features.includes(k)}
+                      onChange={(e) => update({ features: e.target.checked ? [...tpl.features, k] : tpl.features.filter((f) => f !== k) })}
                     />
-                    {v.label}
+                    {t(v.label)}
                   </label>
                 ))}
               </div>
             </div>
             <label className="field">
-              <span>Ports weiterleiten</span>
+              <span>{t('Forward ports')}</span>
               <input
                 value={ports}
-                placeholder="z. B. 3000, 5173"
+                placeholder={t('e.g. 3000, 5173')}
                 onChange={(e) => {
                   setPorts(e.target.value)
                   update({
@@ -334,11 +335,11 @@ function DevcontainerDialog({
               />
             </label>
             <label className="field">
-              <span>Nach dem Erstellen ausführen</span>
+              <span>{t('Run after creating')}</span>
               <input
                 className="mono"
-                value={t.postCreateCommand}
-                placeholder="z. B. npm install"
+                value={tpl.postCreateCommand}
+                placeholder={t('e.g. npm install')}
                 onChange={(e) => update({ postCreateCommand: e.target.value })}
               />
             </label>
@@ -351,13 +352,13 @@ function DevcontainerDialog({
         {error && <div className="notice err">{error}</div>}
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>
-            Abbrechen
+            {t('Cancel')}
           </button>
           <button className="btn" onClick={() => void create(false)}>
-            Nur anlegen
+            {t('Create only')}
           </button>
           <button className="btn primary" onClick={() => void create(true)}>
-            Anlegen &amp; starten
+            {t('Create & start')}
           </button>
         </div>
       </div>

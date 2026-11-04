@@ -1,5 +1,5 @@
-// npm entfernt beim Installieren manchmal das Ausführungsrecht von node-ptys „spawn-helper“.
-// Ohne das startet kein Terminal („posix_spawnp failed“). Wird als postinstall ausgeführt.
+// npm sometimes strips the execute permission from node-pty's “spawn-helper” during install.
+// Without it no terminal starts (“posix_spawnp failed”). Runs as postinstall.
 import { chmodSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 

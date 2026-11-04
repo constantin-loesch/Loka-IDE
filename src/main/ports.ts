@@ -1,5 +1,5 @@
-// Ports: erkennt Dienste aus den Terminals der IDE und leitet Ports aus dem Devcontainer
-// auf localhost weiter – wie die Ports-Ansicht in VS Code.
+// Ports: detects services from the IDE's terminals and forwards ports from the dev container
+// to localhost – like the Ports view in VS Code.
 import { execFile } from 'node:child_process'
 import { createServer, type Server, type Socket } from 'node:net'
 import type { PortInfo } from '../shared/types'
@@ -13,14 +13,14 @@ interface Forward {
   port: number
   localPort: number
   server: Server
-  /** Von Hand oder per forwardPorts – bleibt auch, wenn gerade nichts lauscht */
+  /** Manual or via forwardPorts – stays even if nothing is listening right now */
   pinned: boolean
 }
 
 const forwards = new Map<number, Forward>()
-/** Lokale Ports, die der Nutzer selbst hinzugefügt hat */
+/** Local ports the user added themselves */
 const pinnedLocal = new Set<number>()
-/** Ports, deren automatische Weiterleitung der Nutzer beendet hat – nicht erneut weiterleiten */
+/** Ports whose automatic forwarding the user stopped – don't forward them again */
 const ignored = new Set<number>()
 
 let root: string | null = null
@@ -29,11 +29,11 @@ let last = ''
 let timer: NodeJS.Timeout | null = null
 let send: Send = () => undefined
 
-// ---------- Weiterleitung in den Container ----------
+// ---------- Forwarding into the container ----------
 
 /**
- * Wird im Container ausgeführt und verbindet stdin/stdout mit 127.0.0.1:<port>.
- * Nimmt das erste vorhandene Werkzeug: bash, nc, socat oder node.
+ * Runs in the container and connects stdin/stdout with 127.0.0.1:<port>.
+ * Takes the first available tool: bash, nc, socat or node.
  */
 const PROXY = [
   'p=$1',
@@ -41,7 +41,7 @@ const PROXY = [
   'if command -v nc >/dev/null 2>&1; then exec nc 127.0.0.1 "$p"; fi',
   'if command -v socat >/dev/null 2>&1; then exec socat - TCP:127.0.0.1:"$p"; fi',
   'if command -v node >/dev/null 2>&1; then exec node -e \'const s=require("net").connect(+process.argv[1],"127.0.0.1");process.stdin.pipe(s);s.pipe(process.stdout);s.on("error",()=>process.exit(1))\' "$p"; fi',
-  'echo "Kein Werkzeug für die Weiterleitung gefunden (bash, nc, socat oder node)" >&2; exit 1'
+  'echo "No tool for forwarding found (bash, nc, socat or node)" >&2; exit 1'
 ].join('\n')
 
 function pipeToContainer(socket: Socket, cid: string, port: number): void {
@@ -59,7 +59,7 @@ function pipeToContainer(socket: Socket, cid: string, port: number): void {
   })
 }
 
-/** Lauscht auf 127.0.0.1 – ist der Wunsch-Port belegt, den nächsten freien nehmen (wie VS Code). */
+/** Listens on 127.0.0.1 – if the wanted port is taken, take the next free one (like VS Code). */
 function listen(server: Server, wanted: number): Promise<number> {
   return new Promise((done, fail) => {
     let attempt = 0
@@ -85,7 +85,7 @@ export async function forward(port: number, pinned = true): Promise<number> {
     return existing.localPort
   }
   if (!containerId) {
-    // Ohne Container: lokalen Port nur in die Liste aufnehmen
+    // Without a container: just add the local port to the list
     pinnedLocal.add(port)
     ignored.delete(port)
     void refresh()
@@ -116,7 +116,7 @@ function closeAllForwards(): void {
   forwards.clear()
 }
 
-// ---------- Lokale Ports aus den Terminals ----------
+// ---------- Local ports from the terminals ----------
 
 function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((done) => {
@@ -124,7 +124,7 @@ function run(cmd: string, args: string[]): Promise<string> {
   })
 }
 
-/** Alle Nachfahren der Terminal-Shells (Dev-Server laufen als Kind der Shell). */
+/** All descendants of the terminal shells (dev servers run as children of the shell). */
 async function descendants(rootPids: number[]): Promise<Set<number>> {
   const out = await run('ps', ['-A', '-o', 'pid=,ppid='])
   const children = new Map<number, number[]>()
@@ -144,7 +144,7 @@ async function descendants(rootPids: number[]): Promise<Set<number>> {
   return all
 }
 
-/** Lauschende TCP-Ports mit Prozess: lsof (macOS, die meisten Linux) oder ss (Linux). */
+/** Listening TCP ports with process: lsof (macOS, most Linux) or ss (Linux). */
 async function listeners(): Promise<{ pid: number; name: string; port: number }[]> {
   const result: { pid: number; name: string; port: number }[] = []
   const lsof = await run('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpcn'])
@@ -161,7 +161,7 @@ async function listeners(): Promise<{ pid: number; name: string; port: number }[
     }
     return result
   }
-  // ss -ltnpH: „LISTEN 0 511 *:3000 *:* users:(("node",pid=123,fd=20))“
+  // ss -ltnpH: “LISTEN 0 511 *:3000 *:* users:(("node",pid=123,fd=20))”
   const ss = await run('ss', ['-ltnpH'])
   for (const line of ss.split('\n')) {
     const f = line.trim().split(/\s+/)
@@ -194,14 +194,14 @@ async function localPorts(): Promise<PortInfo[]> {
 async function containerPorts(): Promise<PortInfo[]> {
   if (!containerId) return []
   const listening = await devcontainer.listeningPorts(containerId)
-  // Neue Dienste automatisch weiterleiten (VS Code macht das genauso)
+  // Forward new services automatically (VS Code does the same)
   for (const port of listening) {
     if (!forwards.has(port) && !ignored.has(port)) await forward(port, false).catch(() => undefined)
   }
   const result: PortInfo[] = []
   for (const f of forwards.values()) {
     if (!f.pinned && !listening.includes(f.port)) {
-      // Dienst beendet und nicht fest eingetragen: Weiterleitung aufräumen
+      // Service ended and not pinned: clean up the forwarding
       f.server.close()
       forwards.delete(f.port)
       continue
@@ -217,7 +217,7 @@ async function containerPorts(): Promise<PortInfo[]> {
   return result
 }
 
-// ---------- Abfrage ----------
+// ---------- Query ----------
 
 let busy = false
 export async function refresh(): Promise<PortInfo[]> {
@@ -251,7 +251,7 @@ export function stopPolling(): void {
   closeAllForwards()
 }
 
-/** Projekt geöffnet oder Container gestartet/gestoppt: Ziel der Weiterleitungen aktualisieren. */
+/** Project opened or container started/stopped: update the target of the forwards. */
 export async function setProject(dir: string | null): Promise<void> {
   if (dir !== root) {
     root = dir
@@ -266,7 +266,7 @@ export async function setProject(dir: string | null): Promise<void> {
   void refresh()
 }
 
-/** Nach dem Start eines Containers: Ports aus forwardPorts weiterleiten. */
+/** After a container start: forward the ports from forwardPorts. */
 export async function containerStarted(dir: string, cid: string, forwardPorts: number[]): Promise<void> {
   root = dir
   if (cid !== containerId) closeAllForwards()

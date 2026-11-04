@@ -7,41 +7,42 @@ import { describeHardware } from './hardware'
 import * as agent from './agent'
 import * as tools from './agentTools'
 import { getSettings } from './settings'
+import { t } from './i18n'
 
 /**
- * Die Inferenz-Engine. Läuft im Main-Prozess und nutzt llama.cpp über node-llama-cpp.
- * Auf Apple Silicon wird automatisch die GPU (Metal) verwendet.
+ * The inference engine. Runs in the main process and uses llama.cpp via node-llama-cpp.
+ * On Apple Silicon the GPU (Metal) is used automatically.
  */
 
-/** Wird an den System-Prompt angehängt, damit das Modell die Werkzeuge sinnvoll nutzt. */
+/** Appended to the system prompt so the model uses the tools sensibly. */
 const AGENT_HINT = `
 
-Wenn dir Werkzeuge zur Verfügung stehen, arbeitest du selbstständig im Projektordner des Nutzers.
-Erkenne selbst, was gewollt ist:
-- Allgemeine Frage oder Smalltalk → einfach antworten, keine Werkzeuge nötig.
-- Frage zum Projekt → nachlesen (list_files, search_code, read_file) und dann antworten, nichts ändern.
-- Auftrag etwas zu erstellen, zu ändern oder zu beheben → als Coding-Agent handeln (siehe unten).
-- Verschaffe dir mit list_files, find_files oder search_code einen Überblick und lies die relevanten Stellen
-  mit read_file, bevor du antwortest oder etwas änderst. Rate keine Dateiinhalte – schau nach.
-- Pfade sind immer relativ zum Projektordner. Mit open_file zeigst du dem Nutzer eine Stelle im Editor.
-Als Coding-Agent (wenn edit_file, write_file und run_command verfügbar sind):
-- Ändere nur, was für die Aufgabe nötig ist. Für Änderungen replace_lines (mit Zeilennummern aus read_file) oder edit_file, für neue Dateien write_file.
-- Nach jedem Schreiben wird die Syntax geprüft. Meldet das Ergebnis einen SYNTAXFEHLER, behebe ihn sofort.
-- Prüfe deine Änderungen, z. B. mit Tests, Build oder Linter über run_command, und behebe Fehler.
-- Jede Änderung und jeder Befehl wird dem Nutzer zur Freigabe gezeigt. Lehnt er ab, respektiere das.
-- Führe nichts Destruktives aus (löschen, git push, Abhängigkeiten global installieren), außer der Nutzer bittet ausdrücklich darum.
-- Fasse am Ende kurz zusammen, was du geändert hast.
-So rufst du ein Werkzeug auf: ein JSON-Objekt {"name": "<werkzeug>", "arguments": {...}}. Mehrere Aufrufe in einer
-Antwort sind erlaubt und werden der Reihe nach ausgeführt. Die Ergebnisse bekommst du erst danach – schreib also
-nie, dass etwas erledigt ist, bevor du das Ergebnis gesehen hast. Code, der in eine Datei gehört, kommt in
-write_file/edit_file und nicht nur als Codeblock in deine Antwort. Lege Dateien genau dort an, wo der Nutzer es sagt.`
+When tools are available to you, you work on your own in the user's project folder.
+Figure out yourself what is wanted:
+- General question or small talk → just answer, no tools needed.
+- Question about the project → look it up (list_files, search_code, read_file) and then answer, change nothing.
+- Request to create, change or fix something → act as a coding agent (see below).
+- Get an overview with list_files, find_files or search_code and read the relevant parts
+  with read_file before you answer or change anything. Don't guess file contents – look them up.
+- Paths are always relative to the project folder. With open_file you show the user a location in the editor.
+As a coding agent (when edit_file, write_file and run_command are available):
+- Only change what the task needs. For changes use replace_lines (with line numbers from read_file) or edit_file, for new files write_file.
+- After every write the syntax is checked. If the result reports a SYNTAX ERROR, fix it right away.
+- Check your changes, e.g. with tests, build or linter via run_command, and fix errors.
+- Every change and every command is shown to the user for approval. If they decline, respect that.
+- Don't do anything destructive (deleting, git push, installing dependencies globally) unless the user explicitly asks for it.
+- At the end, briefly summarize what you changed.
+How to call a tool: a JSON object {"name": "<tool>", "arguments": {...}}. Several calls in one
+answer are allowed and are executed in order. You only get the results afterwards – so never
+write that something is done before you have seen the result. Code that belongs in a file goes into
+write_file/edit_file and not just as a code block in your answer. Create files exactly where the user says.`
 
-/** Token-Obergrenze pro Modell-Antwort im Agent-Modus, falls keine eigene Grenze eingestellt ist */
+/** Token limit per model answer in agent mode, unless a limit is set */
 const AGENT_STEP_TOKENS = 3000
 
 const systemPrompt = (): string => getSettings().systemPrompt + AGENT_HINT
 
-// node-llama-cpp ist ein reines ES-Modul, deshalb wird es dynamisch geladen.
+// node-llama-cpp is a pure ES module, so it is loaded dynamically.
 type NodeLlamaCpp = typeof import('node-llama-cpp')
 let lib: NodeLlamaCpp | null = null
 const loadLib = async (): Promise<NodeLlamaCpp> => (lib ??= await import('node-llama-cpp'))
@@ -52,7 +53,7 @@ let context: LlamaContext | null = null
 let session: LlamaChatSession | null = null
 let status: EngineStatus = { state: 'idle' }
 let currentAbort: AbortController | null = null
-/** Projektordner, dessen Übersicht das Modell in diesem Chat schon bekommen hat */
+/** Project folder whose overview the model already got in this chat */
 let overviewSentFor: string | null = null
 
 type StatusListener = (s: EngineStatus) => void
@@ -69,19 +70,19 @@ export const onStatus = (l: StatusListener): (() => void) => {
   return () => listeners.delete(l)
 }
 
-/** Gibt es einen mit scripts/build-llama-cuda.sh gebauten llama.cpp? (nur Linux) */
+/** Is there a llama.cpp built with scripts/build-llama-cuda.sh? (Linux only) */
 function hasLocalCudaBuild(): boolean {
   if (process.platform !== 'linux') return false
   const dir = join(app.getAppPath(), 'node_modules', 'node-llama-cpp', 'llama').replace('app.asar', 'app.asar.unpacked')
   return existsSync(join(dir, 'lastBuild.json')) && existsSync(join(dir, 'localBuilds'))
 }
 
-/** Mit welchem Backend die aktuelle llama-Instanz erzeugt wurde */
+/** Which backend the current llama instance was created with */
 let llamaBackend: GpuBackend | null = null
 
 /**
- * llama.cpp mit dem eingestellten Backend starten. „auto“ nimmt das beste verfügbare:
- * Metal auf dem Mac, sonst CUDA (NVIDIA) oder Vulkan, notfalls CPU.
+ * Start llama.cpp with the configured backend. “auto” takes the best available one:
+ * Metal on the Mac, otherwise CUDA (NVIDIA) or Vulkan, CPU as a last resort.
  */
 async function ensureLlama(): Promise<Llama> {
   const wanted = getSettings().gpuBackend ?? 'auto'
@@ -92,7 +93,7 @@ async function ensureLlama(): Promise<Llama> {
     llama = null
   }
   const { getLlama } = await loadLib()
-  // Selbst gebautes llama.cpp mit CUDA (Jetson, DGX Spark – siehe scripts/build-llama-cuda.sh) bevorzugen
+  // Prefer a self-built llama.cpp with CUDA (Jetson, DGX Spark – see scripts/build-llama-cuda.sh)
   if ((wanted === 'auto' || wanted === 'cuda') && hasLocalCudaBuild()) {
     try {
       const local = await getLlama('lastBuild')
@@ -103,22 +104,22 @@ async function ensureLlama(): Promise<Llama> {
       }
       await local.dispose()
     } catch (err) {
-      console.warn('Lokaler CUDA-Build lässt sich nicht laden, nehme die fertigen Bausteine:', err)
+      console.warn('Local CUDA build cannot be loaded, using the prebuilt binaries:', err)
     }
   }
   try {
     llama = await getLlama(wanted === 'auto' ? undefined : { gpu: wanted === 'cpu' ? false : wanted })
   } catch (err) {
     if (wanted === 'auto') throw err
-    // Gewünschtes Backend nicht verfügbar (z. B. kein CUDA installiert) – lieber automatisch als gar nicht
-    console.warn(`Backend ${wanted} nicht verfügbar, nehme automatische Auswahl:`, err)
+    // Requested backend not available (e.g. CUDA not installed) – better automatic than nothing
+    console.warn(`Backend ${wanted} not available, using automatic selection:`, err)
     llama = await getLlama()
   }
   llamaBackend = wanted
   return llama
 }
 
-/** Erkannte Hardware (startet dafür llama.cpp, falls nötig). */
+/** Detected hardware (starts llama.cpp for that, if needed). */
 export async function getHardware(): Promise<HardwareInfo> {
   const l = await ensureLlama()
   const gpu = l.gpu === false ? 'cpu' : (l.gpu as HardwareInfo['gpu'])
@@ -140,7 +141,7 @@ export async function loadModel(modelPath: string): Promise<void> {
       gpuLayers: s.gpuLayers,
       onLoadProgress: (progress) => setStatus({ state: 'loading', modelPath, progress })
     })
-    // Kontext begrenzen, damit der Speicher auf kleinen Rechnern reicht (0 = so groß wie möglich)
+    // Limit the context so memory suffices on small machines (0 = as large as possible)
     context = await model.createContext({
       contextSize: s.contextSize > 0 ? { max: s.contextSize } : 'auto',
       flashAttention: s.flashAttention
@@ -173,7 +174,7 @@ export async function unloadModel(): Promise<void> {
   setStatus({ state: 'idle' })
 }
 
-/** Native Funktionsaufrufe für Modelle, die das Format ihres Chat-Templates beherrschen. */
+/** Native function calls for models that master the format of their chat template. */
 async function nativeFunctions(
   run: ReturnType<typeof agent.makeRunner>,
   available: ReturnType<typeof agent.toolsFor>
@@ -190,17 +191,17 @@ async function nativeFunctions(
   return fns
 }
 
-/** Will der Task etwas verändern (anlegen, beheben, ändern …)? */
+/** Does the task want to change something (create, fix, change …)? German and English verbs. */
 const CHANGE_WORDS =
   /(?<!\p{L})(erstell|anleg|leg\p{L}* (?:\p{L}+ ){0,4}an\b|schreib|beheb|fix|reparier|änder|aender|füg|fueg|ergänz|implementier|refaktor|umbenenn|lösch|entfern|aktualisier)/iu
 const CHANGE_REQUEST = { test: (t: string): boolean => CHANGE_WORDS.test(t) || /^\s*(please\s+)?(add|create|write|change|remove|rename|update|fix|implement|refactor)\b/i.test(t) }
 
-/** Dateinamen, die in der Aufgabe vorkommen, z. B. "rechner.js" oder "src/app.py" */
+/** File names mentioned in the task, e.g. "calc.js" or "src/app.py" */
 const FILE_NAME = /(?:^|[\s"'`„(])((?:[\w.-]+\/)*[\w-]+\.(?:js|mjs|cjs|ts|tsx|jsx|py|json|md|html|css|scss|txt|sh|yml|yaml|toml|java|kt|go|rs|rb|php|c|cpp|h|swift|vue|svelte|sql))(?=$|[\s"'`“),.;:!?])/gi
-/** Verlangt die Aufgabe, etwas auszuführen? */
+/** Does the task ask to run something? */
 const RUN_REQUEST = /\b(führ\w*|fuehr\w*|starte|lass\w*)\b[^.]*\b(aus|laufen)\b|\b(npm|yarn|pnpm)\s+(test|run)\b|\bpytest\b|\brun the\b/i
 
-/** Grund, warum die Aufgabe noch nicht fertig ist – oder null, wenn das Modell aufhören darf. */
+/** Reason why the task isn't finished yet – or null if the model may stop. */
 function unfinished(
   answer: string,
   task: string,
@@ -209,40 +210,40 @@ function unfinished(
 ): { label: string; prompt: string } | null {
   if (runner.syntaxErrors.size) {
     return {
-      label: `Syntaxfehler in ${[...runner.syntaxErrors].join(', ')} – Modell soll ihn beheben`,
-      prompt: `In ${[...runner.syntaxErrors].join(', ')} ist noch ein Syntaxfehler. Lies die Datei mit read_file und behebe ihn mit replace_lines oder write_file.`
+      label: t('Syntax error in {files} – the model should fix it', { files: [...runner.syntaxErrors].join(', ') }),
+      prompt: `There is still a syntax error in ${[...runner.syntaxErrors].join(', ')}. Read the file with read_file and fix it with replace_lines or write_file.`
     }
   }
   if (runner.lastCommandFailed) {
     return {
-      label: 'Letzter Befehl ist fehlgeschlagen – Modell soll das Problem beheben',
-      prompt: 'Der letzte Befehl ist fehlgeschlagen, die Aufgabe ist also noch nicht erledigt. Behebe die Ursache (z. B. mit edit_file oder write_file) und führe den Befehl danach erneut aus.'
+      label: t('Last command failed – the model should fix the problem'),
+      prompt: 'The last command failed, so the task is not done yet. Fix the cause (e.g. with edit_file or write_file) and then run the command again.'
     }
   }
   if (runner.changed.size === 0 && CHANGE_REQUEST.test(task)) {
     const codeOnly = /```[\w-]*\n(?:.*\n){2,}?```/.test(answer)
     return {
-      label: 'Noch keine Datei geändert – Modell soll die Änderung wirklich ausführen',
+      label: t('No file changed yet – the model should actually make the change'),
       prompt:
-        (codeOnly ? 'Du hast Code nur als Text ausgegeben. ' : 'Du hast das Problem beschrieben, ') +
-        'aber es wurde noch KEINE Datei angelegt oder geändert. Führe die Änderung jetzt mit write_file (neue Datei) oder edit_file (bestehende Datei) aus und prüfe sie danach.'
+        (codeOnly ? 'You only output code as text. ' : 'You described the problem, ') +
+        'but NO file has been created or changed yet. Make the change now with write_file (new file) or edit_file (existing file) and check it afterwards.'
     }
   }
-  // In der Aufgabe genannte Dateien, die (nirgends im Projekt) existieren – nur wenn etwas angelegt werden soll
+  // Files named in the task that don't exist (anywhere in the project) – only if something should be created
   if (/(?<!\p{L})(erstell|anleg|schreib|neue)|^\s*(create|write)\b/iu.test(task)) {
     const named = [...new Set([...task.matchAll(FILE_NAME)].map((m) => m[1]))]
     const missing = named.filter((f) => ![...runner.changed].some((c) => c === f || c.endsWith('/' + f)) && !existsSync(join(root, f)))
     if (missing.length) {
       return {
-        label: `${missing.join(', ')} fehlt noch – Modell soll weitermachen`,
-        prompt: `Die Aufgabe ist noch nicht vollständig: ${missing.join(', ')} wurde noch nicht angelegt. Leg die fehlende(n) Datei(en) jetzt mit write_file an.`
+        label: t('{files} still missing – the model should continue', { files: missing.join(', ') }),
+        prompt: `The task is not complete yet: ${missing.join(', ')} has not been created. Create the missing file(s) now with write_file.`
       }
     }
   }
   if (RUN_REQUEST.test(task) && runner.commandsRun === 0) {
     return {
-      label: 'Verlangter Befehl wurde noch nicht ausgeführt',
-      prompt: 'Die Aufgabe verlangt, etwas auszuführen (z. B. Tests). Das ist noch nicht passiert. Führe den Befehl jetzt mit run_command aus.'
+      label: t('Requested command has not been run yet'),
+      prompt: 'The task asks to run something (e.g. tests). That has not happened yet. Run the command now with run_command.'
     }
   }
   return null
@@ -256,7 +257,7 @@ export interface ChatCallbacks {
 }
 
 export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ changed: string[] }> {
-  if (!session) throw new Error('Kein Modell geladen')
+  if (!session) throw new Error(t('No model loaded'))
   const s = getSettings()
   const abort = new AbortController()
   currentAbort = abort
@@ -283,7 +284,7 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
   const functions = runner ? await nativeFunctions(runner, available) : undefined
 
   const announced = new Set<string>()
-  // Pro Modell-Antwort eigener Abbruch: stoppt, sobald das Modell nach einem Werkzeug-Aufruf weiterfantasiert
+  // Own abort per model answer: stops as soon as the model keeps fantasizing after a tool call
   let turn = new AbortController()
   let turnText = ''
   const options = {
@@ -296,17 +297,17 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
     topK: s.topK,
     minP: s.minP,
     seed: s.seed ?? undefined,
-    // Im Agent-Modus nie unbegrenzt: Ein Modell, das sich in einem Werkzeug-Parameter verrennt, hängt sonst ewig
+    // Never unlimited in agent mode: a model that gets lost in a tool parameter would otherwise hang forever
     maxTokens: s.maxTokens > 0 ? s.maxTokens : runner ? AGENT_STEP_TOKENS : undefined,
     repeatPenalty: s.repeatPenalty > 1 ? { penalty: s.repeatPenalty, lastTokens: s.repeatLastTokens } : (false as const),
     budgets: s.thoughtTokens !== null ? { thoughtTokens: s.thoughtTokens } : undefined,
     functions,
-    // Werkzeug-Aufrufe im nativen Format werden nicht als Text gestreamt – Fortschritt trotzdem zeigen
+    // Tool calls in native format are not streamed as text – still show progress
     onFunctionCallParamsChunk: (c: { callIndex: number; functionName: string }) => {
       const key = `${c.callIndex}`
       if (announced.has(key)) return
       announced.add(key)
-      emit('tool', `⏳ bereitet ${c.functionName} vor …`)
+      emit('tool', t('⏳ preparing {name} …', { name: c.functionName }))
     },
     onResponseChunk: (chunk: { type?: string; segmentType?: string; text: string }) => {
       const kind = chunk.type === 'segment' && chunk.segmentType === 'thought' ? 'thought' : 'text'
@@ -322,22 +323,22 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
   try {
     let prompt = req.prompt
     if (mode === 'read') {
-      prompt = `[Nur lesen – du darfst nichts ändern und keine Befehle ausführen.]\n${prompt}`
+      prompt = `[Read only – you may not change anything or run commands.]\n${prompt}`
     }
     if (runner && req.root && overviewSentFor !== req.root) {
       overviewSentFor = req.root
-      // Eine Übersicht vorab spart Suchschritte und verhindert, dass kleine Modelle Pfade raten
+      // An overview up front saves search steps and keeps small models from guessing paths
       const overview = await tools.listFiles(req.root, '.', 2).catch(() => '')
       const testCmd = await tools.detectTestCommand(req.root)
       if (overview) {
-        emit('tool', '📂 Projektübersicht')
+        emit('tool', t('📂 Project overview'))
         prompt =
-          `Projektstruktur (Auszug):\n${overview.slice(0, 3000)}\n` +
-          (testCmd ? `Tests dieses Projekts laufen mit: ${testCmd}\n` : '') +
+          `Project structure (excerpt):\n${overview.slice(0, 3000)}\n` +
+          (testCmd ? `Tests of this project run with: ${testCmd}\n` : '') +
           `\n${prompt}`
       }
     }
-    // Schleife für Modelle, die Werkzeuge als Text aufrufen (siehe parseToolCalls)
+    // Loop for models that call tools as text (see parseToolCalls)
     let nudges = 0
     let askedForSummary = false
     let repeatedFailures = 0
@@ -351,8 +352,8 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         if (!/context/i.test(msg)) throw err
-        // Kontext voll – verständlich melden statt abzustürzen
-        emit('text', '\n\n⚠ Der Kontext des Modells ist voll. Starte einen neuen Chat (+ oben) oder erhöhe die Kontextgröße in den Modell-Einstellungen.')
+        // Context full – report it clearly instead of crashing
+        emit('text', '\n\n⚠ ' + t('The model\'s context is full. Start a new chat (+ at the top) or increase the context size in the model settings.'))
         if (runner?.log.length) emit('text', `\n\n${runner.summary()}`)
         break
       }
@@ -360,53 +361,53 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
       const calls = agent.parseToolCalls(answer, available)
 
       if (calls.length === 0) {
-        // Das Modell will aufhören. Prüfen, ob die Aufgabe wirklich erledigt ist, und sonst (begrenzt oft) weitermachen lassen.
+        // The model wants to stop. Check whether the task is really done, otherwise let it continue (a limited number of times).
         const reason = mode === 'agent' && !runner.exhausted && !runner.userRejected && nudges < 5 ? unfinished(answer, req.prompt, runner, req.root!) : null
         if (reason) {
           nudges++
           emit('retract', '')
           emit('tool', `↻ ${reason.label}`)
-          prompt = reason.prompt + ' Antworte nur mit den nötigen Werkzeug-Aufrufen als JSON.'
+          prompt = reason.prompt + ' Answer only with the necessary tool calls as JSON.'
           continue
         }
         break
       }
 
-      // Der Text mit den Aufrufen (und vorweggenommenen Erfolgsmeldungen) ist keine echte Antwort
+      // The text with the calls (and anticipated success messages) is not a real answer
       emit('retract', '')
 
-      // Nach einer Ablehnung nichts mehr eigenmächtig ausführen
+      // After a decline, don't do anything else on its own
       if (runner.userRejected) {
-        emit('text', `${runner.summary()}\n\nIch habe danach nichts weiter unternommen. Sag mir, wie ich es stattdessen machen soll.`)
+        emit('text', `${runner.summary()}\n\n${t('I did not do anything else after that. Tell me how I should do it instead.')}`)
         break
       }
 
       const fresh = calls.filter((c) => !runner.seen(c.name, c.args))
-      // Identische Aufrufe, die schon gescheitert sind, nicht erneut ausführen – stattdessen deutlich darauf hinweisen
+      // Don't repeat identical calls that already failed – point that out clearly instead
       const repeatedFailure = fresh.find((c) => runner.failedBefore(c.name, c.args))
       if (repeatedFailure) {
         repeatedFailures++
         if (repeatedFailures > 2) {
-          emit('text', runner.summary() + '\n\nDas Modell kam an dieser Stelle nicht weiter. Formuliere die Aufgabe genauer oder probier ein größeres Modell.')
+          emit('text', runner.summary() + '\n\n' + t('The model got stuck at this point. Describe the task more precisely or try a larger model.'))
           break
         }
         prompt =
-          `Du hast ${repeatedFailure.name} genau so schon aufgerufen und es ist gescheitert:\n` +
+          `You already called ${repeatedFailure.name} exactly like this and it failed:\n` +
           `${runner.failedBefore(repeatedFailure.name, repeatedFailure.args)}\n\n` +
-          'Wiederhole diesen Aufruf NICHT. Mach etwas anderes: Lies die Datei mit read_file und kopiere old_text exakt, ' +
-          'oder schreib die ganze Datei mit write_file neu.'
+          'Do NOT repeat this call. Do something else: read the file with read_file and copy old_text exactly, ' +
+          'or rewrite the whole file with write_file.'
         continue
       }
       if (fresh.length === 0 || runner.exhausted) {
-        // Nur noch Wiederholungen oder Limit erreicht: einmal um Zusammenfassung bitten, dann selbst beenden
+        // Only repetitions left or limit reached: ask for a summary once, then finish on our own
         if (!askedForSummary && !runner.exhausted) {
           askedForSummary = true
           prompt =
-            'Diese Aufrufe wurden alle bereits erfolgreich ausgeführt – es gibt nichts mehr zu tun. ' +
-            'Antworte jetzt NUR mit einer kurzen Zusammenfassung für den Nutzer, ohne Werkzeug-Aufrufe.'
+            'All these calls were already executed successfully – there is nothing left to do. ' +
+            'Now answer ONLY with a short summary for the user, without tool calls.'
           continue
         }
-        emit('text', runner.summary() + (runner.exhausted ? '\n\n(Werkzeug-Limit erreicht – bei Bedarf in den Einstellungen erhöhen.)' : ''))
+        emit('text', runner.summary() + (runner.exhausted ? '\n\n' + t('(Tool limit reached – increase it in the settings if needed.)') : ''))
         break
       }
 
@@ -417,12 +418,12 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
         report.push(`### ${k + 1}. ${name}\n${result}`)
         if (abort.signal.aborted) break
         if (runner.userRejected) {
-          if (k < fresh.length - 1) report.push(`Die übrigen ${fresh.length - k - 1} Aufrufe wurden NICHT ausgeführt.`)
+          if (k < fresh.length - 1) report.push(`The remaining ${fresh.length - k - 1} calls were NOT executed.`)
           break
         }
-        // Spätere Schritte bauen meist auf früheren auf – nach einem Fehler nicht blind weitermachen
+        // Later steps usually build on earlier ones – don't continue blindly after an error
         if (agent.failed(result) && k < fresh.length - 1) {
-          report.push(`Die übrigen ${fresh.length - k - 1} Aufrufe wurden NICHT ausgeführt, weil dieser Schritt nicht geklappt hat.`)
+          report.push(`The remaining ${fresh.length - k - 1} calls were NOT executed because this step did not work.`)
           break
         }
         if (runner.exhausted) break
@@ -432,18 +433,18 @@ export async function chat(req: ChatRequest, cb: ChatCallbacks): Promise<{ chang
 
       const changedList = [...runner.changed]
       prompt =
-        `Ergebnisse deiner Werkzeug-Aufrufe:\n\n${report.join('\n\n')}\n\n` +
-        (skipped ? `${skipped} Aufruf(e) waren Wiederholungen von bereits Erledigtem und wurden übersprungen.\n` : '') +
-        `Bisher tatsächlich geschriebene Dateien: ${changedList.length ? changedList.join(', ') : 'keine'}.\n` +
-        `Zur Erinnerung, die Aufgabe des Nutzers: „${req.prompt.slice(0, 600)}“ – prüfe, ob wirklich jeder Teil davon erledigt ist.\n` +
-        'Behaupte nur, was in diesen Ergebnissen steht. Wiederhole keine erledigten Schritte. ' +
+        `Results of your tool calls:\n\n${report.join('\n\n')}\n\n` +
+        (skipped ? `${skipped} call(s) were repetitions of things already done and were skipped.\n` : '') +
+        `Files actually written so far: ${changedList.length ? changedList.join(', ') : 'none'}.\n` +
+        `As a reminder, the user's task: “${req.prompt.slice(0, 600)}” – check whether every part of it is really done.\n` +
+        'Only claim what these results show. Don\'t repeat completed steps. ' +
         (runner.userRejected
-          ? 'Der Nutzer hat abgelehnt. Ruf KEINE Werkzeuge mehr auf. Antworte kurz: was du vorhattest und frag, was er stattdessen möchte.'
+          ? 'The user declined. Do NOT call any more tools. Answer briefly: what you intended and ask what they want instead.'
           : runner.exhausted
-          ? 'Das Werkzeug-Limit ist erreicht. Fasse jetzt ehrlich zusammen, was erledigt ist und was noch offen ist.'
+          ? 'The tool limit is reached. Now honestly summarize what is done and what is still open.'
           : report.some((r) => agent.failed(r.split('\n').slice(1).join('\n')))
-            ? 'Mindestens ein Schritt ist fehlgeschlagen. Lies die Meldung, korrigiere das Problem und mach dann weiter.'
-            : 'Wenn die Aufgabe damit erledigt ist, antworte nur mit einer kurzen Zusammenfassung ohne Werkzeug-Aufrufe. Sonst ruf die nächsten Werkzeuge auf.')
+            ? 'At least one step failed. Read the message, fix the problem and then continue.'
+            : 'If the task is done with this, answer only with a short summary without tool calls. Otherwise call the next tools.')
     }
   } finally {
     if (currentAbort === abort) currentAbort = null
@@ -455,7 +456,7 @@ export function stopChat(): void {
   currentAbort?.abort()
 }
 
-/** Neuer Chat – übernimmt dabei einen geänderten System-Prompt. */
+/** New chat – also applies a changed system prompt. */
 export function resetChat(): void {
   agent.resetApprovals()
   overviewSentFor = null

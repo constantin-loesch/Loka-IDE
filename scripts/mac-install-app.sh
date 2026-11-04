@@ -1,14 +1,14 @@
 #!/bin/sh
-# Kopiert eine gebaute App an ihren Platz und signiert sie (ad hoc).
-# Aufruf: sh scripts/mac-install-app.sh <gebaute .app> <Ziel .app>
+# Copies a built app into place and signs it (ad hoc).
+# Usage: sh scripts/mac-install-app.sh <built .app> <target .app>
 #
-# Gibt es das Ziel schon, wird nur der Inhalt ersetzt – der Ordner selbst bleibt derselbe.
-# So bleibt das Symbol im Dock mit der App verknüpft.
+# If the target already exists, only its contents are replaced – the folder itself stays the same.
+# That keeps the Dock icon linked to the app.
 set -e
 SRC="$1"
 DEST="$2"
-[ -d "$SRC/Contents" ] || { echo "Nicht gefunden: $SRC" >&2; exit 1; }
-[ "$SRC" != "$DEST" ] || { echo "Quelle und Ziel sind gleich: $SRC" >&2; exit 1; }
+[ -d "$SRC/Contents" ] || { echo "Not found: $SRC" >&2; exit 1; }
+[ "$SRC" != "$DEST" ] || { echo "Source and target are the same: $SRC" >&2; exit 1; }
 
 if [ -d "$DEST/Contents" ]; then
   rsync -a --delete "$SRC/" "$DEST/"
@@ -19,5 +19,5 @@ else
 fi
 xattr -cr "$DEST"
 codesign --force --deep --sign - "$DEST"
-# Finder und Dock über die neue Version informieren
+# Tell Finder and Dock about the new version
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST" >/dev/null 2>&1 || true

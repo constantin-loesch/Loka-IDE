@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } fr
 import type { MediaKind, TextEncoding } from '../../../shared/types'
 import { detectLanguage, formatSize, modelUri } from '../fileLanguage'
 import { Icon } from './Icon'
+import { t } from '../i18n'
 
 export type Tab =
   | { id: string; title: string; kind: 'file'; path: string; content: string; dirty: boolean; encoding: TextEncoding }
@@ -35,7 +36,7 @@ export default function EditorArea({
 }: Props): React.JSX.Element {
   const active = tabs.find((t) => t.id === activeId)
 
-  // Der Speichern-Befehl wird nur einmal registriert, braucht aber immer den aktuellen Tab
+  // The save command is registered only once but always needs the current tab
   const activeRef = useRef(active)
   useEffect(() => {
     activeRef.current = active
@@ -51,7 +52,7 @@ export default function EditorArea({
         await window.api.fs.writeFile(tab.path, content, tab.encoding)
         onUpdate(tab.id, { content, dirty: false })
       } catch (err) {
-        alert(`Speichern fehlgeschlagen:\n${err}`)
+        alert(`${t('Saving failed:')}\n${err}`)
       }
     })
   }
@@ -59,30 +60,30 @@ export default function EditorArea({
   return (
     <div className="editor-area">
       <div className="tabbar">
-        {tabs.map((t) => (
+        {tabs.map((tab) => (
           <div
-            key={t.id}
-            className={`tab ${t.id === activeId ? 'active' : ''}`}
-            title={'path' in t ? t.path : t.title}
-            onClick={() => onSelect(t.id)}
+            key={tab.id}
+            className={`tab ${tab.id === activeId ? 'active' : ''}`}
+            title={'path' in tab ? tab.path : tab.title}
+            onClick={() => onSelect(tab.id)}
             onMouseDown={(e) => {
-              // Mittlere Maustaste schließt den Tab
+              // Middle mouse button closes the tab
               if (e.button === 1) {
                 e.preventDefault()
-                onClose(t.id)
+                onClose(tab.id)
               }
             }}
           >
-            {t.kind === 'models' && <Icon name="chip" size={14} />}
-            <span>{t.title}</span>
-            {t.kind === 'file' && t.dirty && <span className="dirty-dot">●</span>}
+            {tab.kind === 'models' && <Icon name="chip" size={14} />}
+            <span>{tab.title}</span>
+            {tab.kind === 'file' && tab.dirty && <span className="dirty-dot">●</span>}
             <button
               className="tab-close"
-              title="Schließen (⌘W)"
+              title={t('Close (⌘W)')}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation()
-                onClose(t.id)
+                onClose(tab.id)
               }}
             >
               <Icon name="close" size={12} />
@@ -95,7 +96,7 @@ export default function EditorArea({
         {!active && (
           <div className="welcome">
             <h1>Lokal IDE</h1>
-            <p>Öffne einen Ordner links oder lade ein Modell unter „Modelle“.</p>
+            <p>{t('Open a folder on the left or load a model under “Models”.')}</p>
           </div>
         )}
         {active?.kind === 'models' && <div className="scroll">{renderModels()}</div>}
@@ -105,13 +106,13 @@ export default function EditorArea({
             path={active.path}
             message={
               active.reason === 'too-large'
-                ? `Die Datei ist zu groß für den Editor (${formatSize(active.size)}).`
-                : `Binärdatei – kann nicht als Text angezeigt werden (${formatSize(active.size)}).`
+                ? t('The file is too large for the editor ({size}).', { size: formatSize(active.size) })
+                : t('Binary file – cannot be shown as text ({size}).', { size: formatSize(active.size) })
             }
             onOpenAsText={() => onOpenAsText(active.id)}
           />
         )}
-        {/* Editor bleibt gemountet, damit Undo-Verlauf und Modelle erhalten bleiben */}
+        {/* The editor stays mounted so undo history and models are kept */}
         <div className="monaco-wrap" style={{ display: active?.kind === 'file' ? 'block' : 'none' }}>
           <Editor
             theme="vs-dark"
@@ -138,7 +139,7 @@ export default function EditorArea({
   )
 }
 
-/** Vorschau für Bilder, PDFs, Audio und Video. */
+/** Preview for images, PDFs, audio and video. */
 function MediaView({ tab, onOpenAsText }: { tab: Extract<Tab, { kind: 'media' }>; onOpenAsText: () => void }): React.JSX.Element {
   const [failed, setFailed] = useState(false)
 
@@ -146,7 +147,7 @@ function MediaView({ tab, onOpenAsText }: { tab: Extract<Tab, { kind: 'media' }>
     return (
       <FileNotice
         path={tab.path}
-        message={`Dieses Format kann hier nicht angezeigt werden (${formatSize(tab.size)}).`}
+        message={t('This format cannot be shown here ({size}).', { size: formatSize(tab.size) })}
         onOpenAsText={onOpenAsText}
       />
     )
@@ -163,7 +164,7 @@ function MediaView({ tab, onOpenAsText }: { tab: Extract<Tab, { kind: 'media' }>
         <div className="preview-meta">
           {formatSize(tab.size)} ·{' '}
           <button className="text-link" onClick={() => openExternal(tab.path)}>
-            Im Standardprogramm öffnen
+            {t('Open in default app')}
           </button>
         </div>
       )}
@@ -178,10 +179,10 @@ function FileNotice({ path, message, onOpenAsText }: { path: string; message: st
       <p>{message}</p>
       <div className="file-notice-actions">
         <button className="btn primary" onClick={() => openExternal(path)}>
-          Im Standardprogramm öffnen
+          {t('Open in default app')}
         </button>
         <button className="btn" onClick={onOpenAsText}>
-          Trotzdem als Text öffnen
+          {t('Open as text anyway')}
         </button>
       </div>
     </div>
@@ -189,5 +190,5 @@ function FileNotice({ path, message, onOpenAsText }: { path: string; message: st
 }
 
 function openExternal(path: string): void {
-  window.api.fs.openExternal(path).catch((err) => alert(`Konnte die Datei nicht öffnen:\n${err}`))
+  window.api.fs.openExternal(path).catch((err) => alert(`${t('Could not open the file:')}\n${err}`))
 }

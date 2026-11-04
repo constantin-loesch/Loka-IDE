@@ -2,7 +2,7 @@
   "name": "lokal-ide",
   "productName": "Lokal IDE",
   "version": "0.1.0",
-  "description": "IDE mit eingebauter lokaler KI (llama.cpp), Terminal, Ports und Devcontainern",
+  "description": "IDE with built-in local AI (llama.cpp), terminal, ports and dev containers",
   "main": "out/main/index.js",
   "private": true,
   "scripts": {
@@ -68,8 +68,8 @@
     "linux": {
       "icon": "build/icon.png",
       "category": "Development",
-      "synopsis": "IDE mit eingebauter lokaler KI",
-      "description": "Code-Editor mit lokalem KI-Assistenten und Coding-Agent auf Basis von llama.cpp (Metal, CUDA, Vulkan, CPU).",
+      "synopsis": "IDE with built-in local AI",
+      "description": "Code editor with a local AI assistant and coding agent based on llama.cpp (Metal, CUDA, Vulkan, CPU).",
       "artifactName": "Lokal-IDE-${version}-${arch}.${ext}"
     }
   },

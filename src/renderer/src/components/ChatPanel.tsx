@@ -3,6 +3,7 @@ import type { ApprovalAnswer, ApprovalRequest, ChatMode, EngineStatus, Installed
 import ApprovalCard from './ApprovalCard'
 import { Icon } from './Icon'
 import SettingsPanel from './SettingsPanel'
+import { t } from '../i18n'
 
 export interface EditorContext {
   fileName: string
@@ -11,11 +12,11 @@ export interface EditorContext {
   selection: string
 }
 
-/** Antwortabschnitte in der Reihenfolge, in der sie kamen: Text, Gedanken und Werkzeug-Schritte. */
+/** Answer sections in the order they arrived: text, thoughts and tool steps. */
 interface Part {
   kind: 'text' | 'thought' | 'tool'
   text: string
-  /** Bei Werkzeug-Schritten: Ausgabe, z. B. vom Terminal */
+  /** For tool steps: output, e.g. from the terminal */
   output?: string
 }
 
@@ -24,9 +25,9 @@ interface Message {
   role: 'user' | 'assistant'
   text: string
   parts?: Part[]
-  /** Kurzer Hinweis, welcher Kontext mitgeschickt wurde */
+  /** Short note on which context was sent along */
   contextLabel?: string
-  /** Vom Agent in dieser Antwort geänderte Dateien (relativ zum Projekt) */
+  /** Files changed by the agent in this answer (relative to the project) */
   changed?: string[]
   reverted?: boolean
   error?: string
@@ -34,16 +35,16 @@ interface Message {
 
 interface Props {
   status: EngineStatus
-  /** Geöffneter Projektordner – nötig, damit das Modell selbst navigieren kann */
+  /** Opened project folder – needed so the model can navigate by itself */
   root: string | null
   getEditorContext: () => EditorContext | null
   onInsert: (code: string) => void
   onOpenModels: () => void
-  /** Hat die Datei ungespeicherte Änderungen im Editor? Dann darf der Agent sie nicht überschreiben. */
+  /** Does the file have unsaved changes in the editor? Then the agent must not overwrite it. */
   isDirty: (path: string) => boolean
 }
 
-// Ganze Dateien kürzen, damit sie in den Kontext des Modells passen (~4 Zeichen pro Token)
+// Truncate whole files so they fit into the model's context (~4 characters per token)
 const MAX_FILE_CHARS = 16_000
 
 export default function ChatPanel({ status, root, getEditorContext, onInsert, onOpenModels, isDirty }: Props): React.JSX.Element {
@@ -58,8 +59,8 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
   const activeRequest = useRef<string | null>(null)
 
   const ready = status.state === 'ready'
-  // Kein Umschalten nötig: Mit offenem Ordner darf das Modell selbst entscheiden, ob es nur antwortet,
-  // im Projekt nachliest oder etwas ändert. Änderungen und Befehle brauchen weiterhin eine Freigabe.
+  // No switching needed: with an open folder the model decides itself whether it just answers,
+  // looks things up in the project or changes something. Changes and commands still need approval.
   const effectiveMode: ChatMode = root ? 'agent' : 'chat'
 
   const answer = (a: ApprovalAnswer): void => {
@@ -67,18 +68,18 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
     void window.api.agent.answer(a)
   }
 
-  // Der Agent will etwas ändern – Freigabe-Karte anzeigen
+  // The agent wants to change something – show the approval card
   const isDirtyRef = useRef(isDirty)
   isDirtyRef.current = isDirty
   useEffect(
     () =>
       window.api.agent.onApproval((req) => {
         if (req.path && isDirtyRef.current(req.path)) {
-          // Ungespeicherte Änderungen des Nutzers nie überschreiben
+          // Never overwrite the user's unsaved changes
           void window.api.agent.answer({
             id: req.id,
             approved: false,
-            reason: `${req.relPath} hat ungespeicherte Änderungen im Editor. Der Nutzer muss die Datei erst speichern.`
+            reason: `${req.relPath} has unsaved changes in the editor. The user has to save the file first.`
           })
           return
         }
@@ -91,7 +92,7 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
     window.api.models.installed().then(setInstalled)
   }, [status.state])
 
-  // Gestreamte Antwortteile an die laufende Nachricht anhängen
+  // Append streamed answer parts to the running message
   useEffect(
     () =>
       window.api.chat.onChunk((c) => {
@@ -106,18 +107,18 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
               return { ...m, parts }
             }
             if (c.kind === 'retract') {
-              // Werkzeug-Aufruf, den das Modell als Text geschrieben hat – nicht als Antwort zeigen
+          // Tool call the model wrote as text – don't show it as an answer
               const idx = parts.map((p) => p.kind).lastIndexOf('text')
               const removed = idx >= 0 ? parts.splice(idx, 1)[0].text : ''
               return { ...m, parts, text: m.text.slice(0, m.text.length - removed.length) }
             }
             const last = parts[parts.length - 1]
-            // Platzhalter „bereitet … vor“ durch den echten Werkzeug-Schritt ersetzen
+          // Replace the “preparing …” placeholder with the real tool step
             if (c.kind === 'tool' && last?.kind === 'tool' && last.text.startsWith('⏳')) {
               parts[parts.length - 1] = { kind: 'tool', text: c.text }
               return { ...m, parts }
             }
-            // Text und Gedanken werden fortgeschrieben, jeder Werkzeug-Schritt ist ein eigener Eintrag
+          // Text and thoughts are continued, every tool step is its own entry
             if (last && last.kind === c.kind && c.kind !== 'tool') parts[parts.length - 1] = { ...last, text: last.text + c.text }
             else parts.push({ kind: c.kind, text: c.text })
             return { ...m, parts, text: c.kind === 'text' ? m.text + c.text : m.text }
@@ -140,13 +141,13 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
     const ctx = includeFile ? getEditorContext() : null
     if (ctx) {
       if (ctx.selection) {
-        prompt = `Ausgewählter Code aus \`${ctx.fileName}\`:\n\`\`\`${ctx.language}\n${ctx.selection}\n\`\`\`\n\n${question}`
-        contextLabel = `Auswahl aus ${ctx.fileName}`
+        prompt = `Selected code from \`${ctx.fileName}\`:\n\`\`\`${ctx.language}\n${ctx.selection}\n\`\`\`\n\n${question}`
+        contextLabel = t('Selection from {file}', { file: ctx.fileName })
       } else {
         const truncated = ctx.content.length > MAX_FILE_CHARS
-        const body = truncated ? ctx.content.slice(0, MAX_FILE_CHARS) + '\n… (gekürzt)' : ctx.content
-        prompt = `Aktuelle Datei \`${ctx.fileName}\`:\n\`\`\`${ctx.language}\n${body}\n\`\`\`\n\n${question}`
-        contextLabel = ctx.fileName + (truncated ? ' (gekürzt)' : '')
+        const body = truncated ? ctx.content.slice(0, MAX_FILE_CHARS) + '\n… (truncated)' : ctx.content
+        prompt = `Current file \`${ctx.fileName}\`:\n\`\`\`${ctx.language}\n${body}\n\`\`\`\n\n${question}`
+        contextLabel = ctx.fileName + (truncated ? ` ${t('(truncated)')}` : '')
       }
     }
 
@@ -177,16 +178,16 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
   return (
     <aside className="chat">
       <div className="panel-header">
-        <span>{showSettings ? 'Modell-Einstellungen' : 'KI-Chat'}</span>
+        <span>{showSettings ? t('Model Settings') : t('AI Chat')}</span>
         <span className="header-actions">
           <button
             className={`icon-btn ${showSettings ? 'on' : ''}`}
-            title={showSettings ? 'Zurück zum Chat' : 'Modell-Einstellungen'}
+            title={showSettings ? t('Back to chat') : t('Model Settings')}
             onClick={() => setShowSettings((v) => !v)}
           >
             <Icon name={showSettings ? 'chat' : 'sliders'} size={16} />
           </button>
-          <button className="icon-btn" title="Neuer Chat" onClick={newChat}>
+          <button className="icon-btn" title={t('New chat')} onClick={newChat}>
             <Icon name="plus" size={16} />
           </button>
         </span>
@@ -201,13 +202,13 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
           }}
           disabled={status.state === 'loading'}
         >
-          <option value="">{installed.length ? 'Modell wählen …' : 'Kein Modell installiert'}</option>
+          <option value="">{installed.length ? t('Choose model …') : t('No model installed')}</option>
           {installed.map((m) => (
             <option key={m.path} value={m.path}>
               {m.name}
             </option>
           ))}
-          <option value="__manage__">Modelle verwalten …</option>
+          <option value="__manage__">{t('Manage models …')}</option>
         </select>
         {status.state === 'loading' && (
           <div className="progress thin">
@@ -229,14 +230,14 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
             {ready ? (
               <p>
                 {effectiveMode === 'agent'
-                  ? 'Frag etwas zu deinem Projekt oder gib eine Aufgabe. Das Modell sucht und liest selbst nach und ändert bei Bedarf Dateien oder führt Befehle aus – das gibst du jeweils vorher frei.'
-                  : 'Frag etwas zu deinem Code. Öffne einen Ordner, damit das Modell selbst im Projekt nachsehen und Aufgaben erledigen kann.'}
+                      ? t('Ask something about your project or give it a task. The model searches and reads by itself and changes files or runs commands if needed – you approve each of those first.')
+                      : t('Ask something about your code. Open a folder so the model can look into the project itself and get tasks done.')}
               </p>
             ) : (
               <>
-                <p>Lade zuerst ein lokales Modell, um zu chatten.</p>
+                    <p>{t('Load a local model first to chat.')}</p>
                 <button className="btn primary" onClick={onOpenModels}>
-                  Modelle öffnen
+                      {t('Open Models')}
                 </button>
               </>
             )}
@@ -260,7 +261,7 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
                   )
                 ) : part.kind === 'thought' ? (
                   <details key={pi} className="thought">
-                    <summary>Gedankengang</summary>
+                      <summary>{t('Chain of thought')}</summary>
                     <pre>{part.text.trim()}</pre>
                   </details>
                 ) : (
@@ -275,20 +276,20 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
             {m.changed && m.changed.length > 0 && (
               <div className="changes-bar">
                 <span className="muted">
-                  {m.reverted ? '↶ Rückgängig gemacht: ' : '✎ Geändert: '}
+                      {m.reverted ? t('↶ Reverted:') + ' ' : t('✎ Changed:') + ' '}
                   {m.changed.join(', ')}
                 </span>
                 {!m.reverted && (
                   <button
                     className="link-btn"
-                    title="Stellt den Stand vor dieser Antwort wieder her (neu angelegte Dateien werden gelöscht)"
+                        title={t('Restores the state before this answer (newly created files are deleted)')}
                     onClick={async () => {
-                      if (!confirm(`Alle Änderungen dieser Antwort zurücknehmen?\n\n${m.changed!.join('\n')}\n\nSpätere Änderungen an diesen Dateien gehen dabei verloren.`)) return
+                          if (!confirm(t('Revert all changes of this answer?') + `\n\n${m.changed!.join('\n')}\n\n` + t('Later changes to these files will be lost.'))) return
                       await window.api.agent.revert(m.id)
                       setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, reverted: true } : x)))
                     }}
                   >
-                    Rückgängig
+                        {t('Undo')}
                   </button>
                 )}
               </div>
@@ -304,13 +305,13 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
         <div className="ctx-toggles">
           <label className="ctx-toggle">
             <input type="checkbox" checked={includeFile} onChange={(e) => setIncludeFile(e.target.checked)} />
-            Datei / Auswahl mitsenden
+              {t('Send file / selection')}
           </label>
         </div>
         <div className="input-row">
           <textarea
             value={input}
-            placeholder={ready ? 'Nachricht … (Enter senden, Shift+Enter neue Zeile)' : 'Kein Modell geladen'}
+              placeholder={ready ? t('Message … (Enter to send, Shift+Enter for a new line)') : t('No model loaded')}
             disabled={!ready}
             rows={3}
             onChange={(e) => setInput(e.target.value)}
@@ -322,11 +323,11 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
             }}
           />
           {busy ? (
-            <button className="send-btn stop" title="Stoppen" onClick={() => window.api.chat.stop()}>
+                <button className="send-btn stop" title={t('Stop')} onClick={() => window.api.chat.stop()}>
               <Icon name="stop" size={16} />
             </button>
           ) : (
-            <button className="send-btn" title="Senden" disabled={!ready || !input.trim()} onClick={send}>
+                <button className="send-btn" title={t('Send')} disabled={!ready || !input.trim()} onClick={send}>
               <Icon name="send" size={16} />
             </button>
           )}
@@ -338,7 +339,7 @@ export default function ChatPanel({ status, root, getEditorContext, onInsert, on
   )
 }
 
-/** Minimaler Markdown-Renderer: Codeblöcke, Inline-Code, Fett. Bewusst ohne innerHTML. */
+/** Minimal Markdown renderer: code blocks, inline code, bold. Deliberately without innerHTML. */
 function Markdown({ text, onInsert }: { text: string; onInsert: (code: string) => void }): React.JSX.Element {
   const parts: ReactNode[] = []
   const fence = /```(\w*)\n?([\s\S]*?)(```|$)/g
@@ -399,10 +400,10 @@ function CodeBlock({ lang, code, onInsert }: { lang: string; code: string; onIns
             setTimeout(() => setCopied(false), 1200)
           }}
         >
-          <Icon name="copy" size={12} /> {copied ? 'Kopiert' : 'Kopieren'}
+        <Icon name="copy" size={12} /> {copied ? t('Copied') : t('Copy')}
         </button>
         <button className="link-btn" onClick={() => onInsert(code)}>
-          <Icon name="insert" size={12} /> Einfügen
+        <Icon name="insert" size={12} /> {t('Insert')}
         </button>
       </div>
       <pre>

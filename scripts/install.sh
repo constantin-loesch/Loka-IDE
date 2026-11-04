@@ -1,13 +1,13 @@
 #!/bin/sh
-# Lokal IDE mit einem Befehl herunterladen, bauen und installieren:
+# Download, build and install Lokal IDE with a single command:
 #
 #   curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/scripts/install.sh | sh
 #
-# macOS: App landet in ~/Applications/Lokal IDE.app
-# Linux: AppImage landet in ~/.local/bin/lokal-ide, dazu ein Eintrag im App-Menü
+# macOS: the app goes to ~/Applications/Lokal IDE.app
+# Linux: the AppImage goes to ~/.local/bin/lokal-ide, plus an entry in the app menu
 #
-# Ordner für den Quellcode ändern:  LOKAL_IDE_DIR=~/code/lokal-ide sh install.sh
-# Fehlt Node.js 22+, wird es automatisch nach ~/.local/share/lokal-ide/node geladen.
+# Change the source folder:  LOKAL_IDE_DIR=~/code/lokal-ide sh install.sh
+# If Node.js 22+ is missing, it is downloaded automatically to ~/.local/share/lokal-ide/node.
 set -e
 
 REPO="https://github.com/constantin-loesch/Lokal-IDE.git"
@@ -15,13 +15,13 @@ DIR="${LOKAL_IDE_DIR:-$HOME/.lokal-ide}"
 OS="$(uname -s)"
 
 say() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
-fail() { printf '\033[1;31mFehler:\033[0m %s\n' "$1" >&2; exit 1; }
+fail() { printf '\033[1;31mError:\033[0m %s\n' "$1" >&2; exit 1; }
 
-# ---------- Voraussetzungen ----------
-command -v git >/dev/null 2>&1 || fail "git fehlt. macOS: xcode-select --install · Linux: sudo apt install git"
+# ---------- Requirements ----------
+command -v git >/dev/null 2>&1 || fail "git is missing. macOS: xcode-select --install · Linux: sudo apt install git"
 
-# Node.js 22+ wird zum Bauen gebraucht. Fehlt es oder ist es zu alt, lädt das Skript ein eigenes
-# Node.js nach ~/.local/share/lokal-ide/node – ohne sudo und ohne das System-Node zu verändern.
+# Node.js 22+ is needed for building. If it is missing or too old, the script downloads its own
+# Node.js to ~/.local/share/lokal-ide/node – without sudo and without touching the system Node.
 NODE_HOME="$HOME/.local/share/lokal-ide/node"
 node_ok() {
   command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -ge 22 ]
@@ -31,75 +31,75 @@ if ! node_ok; then
   case "$(uname -m)" in
     x86_64 | amd64) NARCH=x64 ;;
     aarch64 | arm64) NARCH=arm64 ;;
-    *) fail "Node.js 22+ fehlt, und für $(uname -m) gibt es keinen automatischen Download. Bitte selbst installieren: https://nodejs.org" ;;
+    *) fail "Node.js 22+ is missing, and there is no automatic download for $(uname -m). Please install it yourself: https://nodejs.org" ;;
   esac
   case "$OS" in
     Darwin) NOS=darwin ;;
     Linux) NOS=linux ;;
-    *) fail "Nicht unterstütztes System: $OS" ;;
+    *) fail "Unsupported system: $OS" ;;
   esac
-  command -v curl >/dev/null 2>&1 || fail "curl fehlt."
-  say "Node.js 22+ fehlt – lade ein eigenes Node.js nach $NODE_HOME"
+  command -v curl >/dev/null 2>&1 || fail "curl is missing."
+  say "Node.js 22+ is missing – downloading a separate Node.js to $NODE_HOME"
   BASE="https://nodejs.org/dist/latest-v22.x"
-  LINE="$(curl -fsSL "$BASE/SHASUMS256.txt" | grep " node-v[0-9.]*-$NOS-$NARCH.tar.gz\$")" || fail "Node.js-Download nicht gefunden."
+  LINE="$(curl -fsSL "$BASE/SHASUMS256.txt" | grep " node-v[0-9.]*-$NOS-$NARCH.tar.gz\$")" || fail "Node.js download not found."
   FILE="$(echo "$LINE" | awk '{print $2}')"
   SUM="$(echo "$LINE" | awk '{print $1}')"
   TMP="$(mktemp -d)"
   curl -fL --progress-bar "$BASE/$FILE" -o "$TMP/$FILE"
   if command -v sha256sum >/dev/null 2>&1; then GOT="$(sha256sum "$TMP/$FILE" | awk '{print $1}')"; else GOT="$(shasum -a 256 "$TMP/$FILE" | awk '{print $1}')"; fi
-  [ "$GOT" = "$SUM" ] || fail "Prüfsumme von $FILE stimmt nicht – Download abgebrochen."
+  [ "$GOT" = "$SUM" ] || fail "Checksum of $FILE does not match – download aborted."
   rm -rf "$NODE_HOME"
   mkdir -p "$NODE_HOME"
   tar -xzf "$TMP/$FILE" -C "$NODE_HOME" --strip-components=1
   rm -rf "$TMP"
   PATH="$NODE_HOME/bin:$PATH"
   export PATH
-  node -v >/dev/null 2>&1 || fail "Das geladene Node.js startet nicht (zu altes System? Ubuntu 18.04 / JetPack 4 wird von Node 22 nicht mehr unterstützt)."
+  node -v >/dev/null 2>&1 || fail "The downloaded Node.js does not start (system too old? Ubuntu 18.04 / JetPack 4 is no longer supported by Node 22)."
 fi
 say "Node.js $(node -v)"
 
 JETSON=""
 if [ "$OS" = "Linux" ]; then
-  # node-pty (Terminal) wird unter Linux aus dem Quellcode gebaut
+  # node-pty (terminal) is built from source on Linux
   for tool in python3 make g++; do
-    command -v "$tool" >/dev/null 2>&1 || fail "$tool fehlt (für das Terminal). Debian/Ubuntu: sudo apt install build-essential python3"
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool is missing (needed for the terminal). Debian/Ubuntu: sudo apt install build-essential python3"
   done
-  # NVIDIA Jetson: llama.cpp wird mit CUDA gebaut (scripts/build-llama-cuda.sh) – dafür braucht es nvcc
+  # NVIDIA Jetson: llama.cpp is built with CUDA (scripts/build-llama-cuda.sh) – that needs nvcc
   JMODEL="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)"
   if [ -f /etc/nv_tegra_release ] || echo "$JMODEL" | grep -qi jetson; then
     JETSON=1
-    say "Erkannt: ${JMODEL:-NVIDIA Jetson} ($(awk '/MemTotal/ {printf "%.0f GB", $2/1048576}' /proc/meminfo) gemeinsamer Speicher)"
+    say "Detected: ${JMODEL:-NVIDIA Jetson} ($(awk '/MemTotal/ {printf "%.0f GB", $2/1048576}' /proc/meminfo) shared memory)"
     if [ -x /usr/local/cuda/bin/nvcc ] || command -v nvcc >/dev/null 2>&1; then
-      say "CUDA gefunden – die KI wird für die GPU gebaut"
+      say "CUDA found – the AI will be built for the GPU"
     else
-      printf '\033[1;33mHinweis:\033[0m CUDA-Toolkit fehlt – ohne läuft die KI nur auf der CPU.\n'
-      printf '         Installieren mit: sudo apt install nvidia-jetpack   (dann dieses Skript erneut starten)\n'
+      printf '\033[1;33mNote:\033[0m CUDA toolkit is missing – without it the AI only runs on the CPU.\n'
+      printf '      Install it with: sudo apt install nvidia-jetpack   (then run this script again)\n'
     fi
   fi
 fi
 
-# ---------- Quellcode holen oder aktualisieren ----------
+# ---------- Fetch or update the source ----------
 if [ -d "$DIR/.git" ]; then
-  say "Aktualisiere $DIR"
+  say "Updating $DIR"
   git -C "$DIR" pull --ff-only
 else
-  say "Lade Lokal IDE nach $DIR"
+  say "Downloading Lokal IDE to $DIR"
   git clone --depth 1 "$REPO" "$DIR"
 fi
 cd "$DIR"
 
-say "Installiere Abhängigkeiten (dauert beim ersten Mal ein paar Minuten)"
+say "Installing dependencies (takes a few minutes the first time)"
 npm install --no-audit --no-fund
 
-# ---------- Bauen und installieren ----------
+# ---------- Build and install ----------
 case "$OS" in
   Darwin)
-    say "Baue die Mac-App"
+    say "Building the Mac app"
     npm run app
-    say "Fertig! Lokal IDE liegt in ~/Applications – starten mit: open \"$HOME/Applications/Lokal IDE.app\""
+    say "Done! Lokal IDE is in ~/Applications – start it with: open \"$HOME/Applications/Lokal IDE.app\""
     ;;
   Linux)
-    say "Baue das AppImage"
+    say "Building the AppImage"
     npm run app:linux
     APPIMAGE="$(ls -t dist/*.AppImage | head -n 1)"
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons"
@@ -109,22 +109,22 @@ case "$OS" in
     cat > "$HOME/.local/share/applications/lokal-ide.desktop" <<EOF
 [Desktop Entry]
 Name=Lokal IDE
-Comment=IDE mit eingebauter lokaler KI
+Comment=IDE with built-in local AI
 Exec=$HOME/.local/bin/lokal-ide %U
 Icon=$HOME/.local/share/icons/lokal-ide.png
 Terminal=false
 Type=Application
 Categories=Development;IDE;
 EOF
-    say "Fertig! Starten mit: lokal-ide (oder über das App-Menü)"
+    say "Done! Start it with: lokal-ide (or from the app menu)"
     if [ -n "$JETSON" ]; then
       echo ""
-      say "Tipp für maximales KI-Tempo auf dem Jetson (volle Leistung, Takt hoch):"
-      echo "    sudo nvpmodel -m 0      # Leistungsmodus MAXN (bleibt nach Neustart)"
-      echo "    sudo jetson_clocks      # Takt fest auf Maximum (bis zum nächsten Neustart)"
+      say "Tip for maximum AI speed on the Jetson (full power, high clocks):"
+      echo "    sudo nvpmodel -m 0      # power mode MAXN (persists across reboots)"
+      echo "    sudo jetson_clocks      # clocks fixed at maximum (until the next reboot)"
     fi
     ;;
   *)
-    fail "Nicht unterstütztes System: $OS (nur macOS und Linux)"
+    fail "Unsupported system: $OS (macOS and Linux only)"
     ;;
 esac

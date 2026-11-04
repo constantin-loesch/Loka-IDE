@@ -1,8 +1,8 @@
-// Updates: vergleicht den Git-Stand dieser App mit GitHub und baut sie bei Bedarf neu.
+// Updates: compares this app's Git state with GitHub and rebuilds it if needed.
 //
-// Die App wird aus dem Quellcode gebaut (scripts/install.sh bzw. `npm run app`). Beim Bauen
-// merkt sie sich Commit und Quellordner. Ein Update ist daher: git pull → npm install →
-// neu bauen → nach dem Beenden die alte App austauschen und neu starten.
+// The app is built from source (scripts/install.sh or `npm run app`). At build time
+// it remembers the commit and source folder. An update therefore is: git pull → npm install →
+// rebuild → after quitting, swap the old app and restart.
 import { app } from 'electron'
 import { spawn } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs'
@@ -10,17 +10,18 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { UpdateInfo, UpdateState } from '../shared/types'
 import { userPath } from './agentTools'
+import { t as tr } from './i18n'
 
 const REPO = 'constantin-loesch/Lokal-IDE'
 const BRANCH = 'main'
-/** Wie oft im Hintergrund nachgesehen wird */
+/** How often to check in the background */
 const INTERVAL_MS = 4 * 60 * 60 * 1000
 
 type Send = (channel: string, payload: unknown) => void
 
 let state: UpdateState = { state: 'idle' }
 let send: Send = () => undefined
-/** Fertig gebaute neue Version (App-Bundle bzw. AppImage) */
+/** Finished new version (app bundle or AppImage) */
 let built: string | null = null
 
 function setState(s: UpdateState): void {
@@ -28,7 +29,7 @@ function setState(s: UpdateState): void {
   send('update:state', s)
 }
 
-/** Beim Entwickeln ist der Projektordner der Quellordner, in der fertigen App der beim Bauen gemerkte. */
+/** During development the project folder is the source folder, in the finished app the one remembered at build time. */
 function sourceDir(): string {
   return app.isPackaged ? __SOURCE_DIR__ : app.getAppPath()
 }
@@ -41,7 +42,7 @@ export function getState(): UpdateState {
   return state
 }
 
-// ---------- Prüfen ----------
+// ---------- Checking ----------
 
 interface CompareResponse {
   status: 'ahead' | 'behind' | 'identical' | 'diverged'
@@ -50,14 +51,14 @@ interface CompareResponse {
 }
 
 /**
- * Fragt GitHub, welche Commits auf main neuer sind als der Stand dieser App.
- * silent = automatische Prüfung: Fehler (offline, Rate-Limit) nicht anzeigen.
+ * Asks GitHub which commits on main are newer than this app's state.
+ * silent = automatic check: don't show errors (offline, rate limit).
  */
 export async function check(silent = false): Promise<UpdateState> {
-  // Während Installation oder wenn schon fertig gebaut: nichts überschreiben
+  // During installation or when already built: don't overwrite anything
   if (state.state === 'installing' || state.state === 'ready') return state
   if (!__BUILD_COMMIT__) {
-    if (!silent) setState({ state: 'error', message: 'Diese App wurde ohne Git-Informationen gebaut – Updates sind nicht möglich.' })
+    if (!silent) setState({ state: 'error', message: tr('This app was built without Git information – updates are not possible.') })
     return state
   }
   const previous = state
@@ -67,12 +68,12 @@ export async function check(silent = false): Promise<UpdateState> {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Lokal-IDE' },
       signal: AbortSignal.timeout(15000)
     })
-    // 404: Der eigene Commit ist (noch) nicht auf GitHub – lokal gebaut, nicht veröffentlicht
+    // 404: our own commit is not on GitHub (yet) – built locally, not published
     if (res.status === 404) {
       setState({ state: 'up-to-date', checkedAt: new Date().toISOString() })
       return state
     }
-    if (!res.ok) throw new Error(`GitHub antwortet mit ${res.status}${res.status === 403 ? ' (zu viele Anfragen – später erneut versuchen)' : ''}`)
+    if (!res.ok) throw new Error(tr('GitHub responds with {status}', { status: res.status }) + (res.status === 403 ? ' ' + tr('(too many requests – try again later)') : ''))
     const data = (await res.json()) as CompareResponse
     if (data.ahead_by > 0) {
       const commits = data.commits
@@ -84,22 +85,22 @@ export async function check(silent = false): Promise<UpdateState> {
     }
   } catch (err) {
     if (silent) state = previous
-    else setState({ state: 'error', message: `Update-Prüfung fehlgeschlagen: ${err instanceof Error ? err.message : err}` })
+    else setState({ state: 'error', message: tr('Update check failed: {message}', { message: err instanceof Error ? err.message : String(err) }) })
   }
   return state
 }
 
 export function start(s: Send): void {
   send = s
-  // Kurz nach dem Start und danach regelmäßig
+  // Shortly after start and then regularly
   setTimeout(() => void check(true), 8000)
   setInterval(() => void check(true), INTERVAL_MS)
 }
 
-// ---------- Installieren ----------
+// ---------- Installing ----------
 
 async function run(cmd: string, args: string[], cwd: string, log: (t: string) => void, env: NodeJS.ProcessEnv = {}): Promise<string> {
-  // Vom Installationsskript geladenes Node.js (falls das System keins in Version 22+ hat) zuerst
+  // Node.js loaded by the install script (if the system has none in version 22+) first
   const PATH = [join(homedir(), '.local', 'share', 'lokal-ide', 'node', 'bin'), await userPath()].join(':')
   return new Promise((done, fail) => {
     const child = spawn(cmd, args, {
@@ -114,12 +115,12 @@ async function run(cmd: string, args: string[], cwd: string, log: (t: string) =>
     }
     child.stdout.on('data', collect)
     child.stderr.on('data', collect)
-    child.on('error', (err) => fail(new Error(`${cmd} konnte nicht gestartet werden: ${err.message}`)))
-    child.on('close', (code) => (code === 0 ? done(out) : fail(new Error(`„${cmd} ${args.join(' ')}“ ist fehlgeschlagen (Code ${code}).`))))
+    child.on('error', (err) => fail(new Error(tr('{cmd} could not be started: {message}', { cmd, message: err.message }))))
+    child.on('close', (code) => (code === 0 ? done(out) : fail(new Error(tr('“{command}” failed (code {code}).', { command: `${cmd} ${args.join(' ')}`, code: String(code) })))))
   })
 }
 
-/** Holt die neue Version und baut sie. Die laufende App bleibt bis zum Neustart unverändert. */
+/** Fetches the new version and builds it. The running app stays unchanged until the restart. */
 export async function install(): Promise<void> {
   if (state.state === 'installing') return
   const dir = sourceDir()
@@ -132,35 +133,35 @@ export async function install(): Promise<void> {
   try {
     if (!existsSync(join(dir, '.git'))) {
       throw new Error(
-        `Der Quellordner ${dir} fehlt oder ist kein Git-Repository. Installiere neu mit:\n` +
+        tr('The source folder {dir} is missing or not a Git repository. Reinstall with:', { dir }) + '\n' +
           `curl -fsSL https://raw.githubusercontent.com/${REPO}/${BRANCH}/scripts/install.sh | sh`
       )
     }
-    step('Prüfe den Quellordner')
-    // package-lock.json schreibt npm install selbst um – kein Grund, das Update abzubrechen
+    step(tr('Checking the source folder'))
+    // npm install rewrites package-lock.json itself – no reason to abort the update
     await run('git', ['checkout', '--', 'package-lock.json'], dir, () => undefined).catch(() => '')
     const dirty = (await run('git', ['status', '--porcelain', '--untracked-files=no'], dir, () => undefined)).trim()
     if (dirty) {
-      throw new Error(`Im Quellordner ${dir} gibt es nicht committete Änderungen. Committe oder verwirf sie, dann erneut versuchen.\n${dirty}`)
+      throw new Error(tr('The source folder {dir} has uncommitted changes. Commit or discard them, then try again.', { dir }) + `\n${dirty}`)
     }
 
-    step('Lade die neue Version (git pull)')
+    step(tr('Downloading the new version (git pull)'))
     await run('git', ['pull', '--ff-only', 'origin', BRANCH], dir, log)
 
-    step('Installiere Abhängigkeiten (npm install)')
+    step(tr('Installing dependencies (npm install)'))
     await run('npm', ['install', '--no-audit', '--no-fund'], dir, log)
 
     if (!app.isPackaged) {
-      // Beim Entwickeln baut `npm run dev` selbst – nur neu starten
+      // During development `npm run dev` builds by itself – just restart
       built = null
       setState({ state: 'ready', dev: true })
       return
     }
 
-    step('Baue die App (dauert ein paar Minuten)')
+    step(tr('Building the app (takes a few minutes)'))
     if (process.platform === 'darwin') {
       await run('npm', ['run', 'app'], dir, log, { LOKAL_IDE_BUILD_ONLY: '1' })
-      // Eigener Ausgabeordner (siehe package-mac.sh), damit eine laufende App in dist/ unberührt bleibt
+      // Own output folder (see package-mac.sh) so a running app in dist/ stays untouched
       built = join(dir, 'dist', 'update', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Lokal IDE.app')
     } else {
       await run('npm', ['run', 'app:linux'], dir, log)
@@ -171,8 +172,8 @@ export async function install(): Promise<void> {
         .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
       built = images[0] ?? null
     }
-    if (!built || !existsSync(built)) throw new Error('Die gebaute App wurde nicht gefunden.')
-    log(`\n✔ Neue Version gebaut: ${built}\n`)
+    if (!built || !existsSync(built)) throw new Error(tr('The built app was not found.'))
+    log('\n✔ ' + tr('New version built: {path}', { path: built }) + '\n')
     setState({ state: 'ready', dev: false, installTo: installTarget() })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -181,17 +182,17 @@ export async function install(): Promise<void> {
   }
 }
 
-// ---------- Neu starten ----------
+// ---------- Restarting ----------
 
-/** Pfad des laufenden App-Bundles („…/Lokal IDE.app“) auf dem Mac. */
+/** Path of the running app bundle (“…/Lokal IDE.app”) on the Mac. */
 function runningBundle(): string | null {
   const i = process.execPath.indexOf('.app/')
   return i > 0 ? process.execPath.slice(0, i + 4) : null
 }
 
 /**
- * Wohin die neue Version kommt. Normalerweise dorthin, wo die App gerade liegt – außer sie läuft
- * direkt aus dem Build-Ordner des Projekts oder aus einem temporären Ort: dann nach ~/Applications.
+ * Where the new version goes. Normally where the app is right now – unless it runs
+ * directly from the project's build folder or from a temporary location: then to ~/Applications.
  */
 export function installTarget(): string {
   if (process.platform !== 'darwin') return process.env.APPIMAGE ?? join(homedir(), '.local', 'bin', 'lokal-ide')
@@ -203,16 +204,16 @@ export function installTarget(): string {
   return insideSource || translocated ? fallback : running
 }
 
-/** Läuft gerade ein Update-Build? Dann soll die App nicht einfach beendet werden. */
+/** Is an update build running? Then the app should not simply quit. */
 export function isInstalling(): boolean {
   return state.state === 'installing'
 }
 
-/** Tauscht die App gegen die neu gebaute und startet sie neu. */
+/** Swaps the app for the newly built one and restarts it. */
 export function restart(): void {
   if (state.state !== 'ready') return
   if (!app.isPackaged || !built) {
-    // Entwicklungsmodus: electron-vite startet die App nicht selbst neu
+    // Development mode: electron-vite doesn't restart the app by itself
     app.relaunch()
     app.exit(0)
     return
@@ -224,20 +225,20 @@ export function restart(): void {
     const logDir = join(homedir(), 'Library', 'Logs', 'Lokal IDE')
     mkdirSync(logDir, { recursive: true })
     const logFile = join(logDir, 'update.log')
-    // Läuft weiter, nachdem die App beendet ist: warten, austauschen, wieder öffnen.
-    // Ausgabe landet in ~/Library/Logs/Lokal IDE/update.log
+    // Keeps running after the app has quit: wait, swap, reopen.
+    // Output goes to ~/Library/Logs/Lokal IDE/update.log
     const child = spawn(
       '/bin/sh',
       [
         '-c',
         'exec >>"$5" 2>&1; echo "--- $(date) Update: $1 -> $2"; ' +
           'while kill -0 "$3" 2>/dev/null; do sleep 0.3; done; ' +
-          'if sh "$0" "$1" "$2"; then echo "installiert"; open "$2"; else echo "Austausch fehlgeschlagen"; open "$4"; fi',
+          'if sh "$0" "$1" "$2"; then echo "installed"; open "$2"; else echo "swap failed"; open "$4"; fi',
         script,
         built,
         dest,
         String(process.pid),
-        // Notfalls die alte App wieder öffnen
+        // If necessary reopen the old app
         runningBundle() ?? dest,
         logFile
       ],
@@ -248,7 +249,7 @@ export function restart(): void {
     return
   }
 
-  // Linux: Das laufende AppImage darf ersetzt werden, solange die Datei umbenannt statt überschrieben wird
+  // Linux: the running AppImage may be replaced as long as the file is renamed instead of overwritten
   const dest = process.env.APPIMAGE ?? join(homedir(), '.local', 'bin', 'lokal-ide')
   const tmp = `${dest}.new`
   copyFileSync(built, tmp)

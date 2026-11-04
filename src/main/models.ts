@@ -8,6 +8,7 @@ import type { CatalogEntry, DownloadProgress, InstalledModel, ModelVariant } fro
 import { CATALOG } from './catalog'
 import { assess, fallbackHardware } from './hardware'
 import { getHardware } from './llm'
+import { t } from './i18n'
 
 export { CATALOG }
 
@@ -27,7 +28,7 @@ async function writeImported(paths: string[]): Promise<void> {
   await writeFile(importedListFile(), JSON.stringify(paths, null, 2))
 }
 
-/** "-00002-of-00006" – Folgeteile eines mehrteiligen Modells */
+/** "-00002-of-00006" – follow-up parts of a multi-part model */
 const SPLIT = /-(\d{5})-of-(\d{5})\.gguf$/i
 
 export async function listInstalled(): Promise<InstalledModel[]> {
@@ -38,13 +39,13 @@ export async function listInstalled(): Promise<InstalledModel[]> {
 
   for (const file of files) {
     const split = file.match(SPLIT)
-    // Mehrteilige Modelle nur einmal zeigen – über den ersten Teil, den llama.cpp auch zum Laden braucht
+    // Show multi-part models only once – via the first part, which llama.cpp also needs for loading
     if (split && split[1] !== '00001') continue
     let size = (await stat(join(dir, file))).size
     if (split) {
       const prefix = file.replace(SPLIT, '')
       const parts = files.filter((f) => f.replace(SPLIT, '') === prefix && SPLIT.test(f))
-      if (parts.length !== Number(split[2])) continue // Download noch nicht vollständig
+      if (parts.length !== Number(split[2])) continue // download not complete yet
       for (const part of parts) if (part !== file) size += (await stat(join(dir, part))).size
     }
     result.push({ path: join(dir, file), name: prettyName(file), sizeBytes: size, external: false })
@@ -55,7 +56,7 @@ export async function listInstalled(): Promise<InstalledModel[]> {
       const s = await stat(p)
       result.push({ path: p, name: prettyName(basename(p)), sizeBytes: s.size, external: true })
     } catch {
-      // Datei wurde verschoben oder gelöscht – einfach nicht anzeigen
+      // File was moved or deleted – just don't show it
     }
   }
   return result
@@ -84,15 +85,15 @@ export async function importModel(path: string): Promise<void> {
   if (!list.includes(path)) await writeImported([...list, path])
 }
 
-/** Entfernt ein Modell. Importierte Dateien werden nur aus der Liste genommen, nicht gelöscht. */
+/** Removes a model. Imported files are only taken off the list, not deleted. */
 export async function removeModel(path: string): Promise<void> {
   const list = await readImported()
   if (list.includes(path)) {
     await writeImported(list.filter((p) => p !== path))
     return
   }
-  if (!path.startsWith(modelsDir())) throw new Error('Pfad liegt außerhalb des Modell-Ordners')
-  // Bei mehrteiligen Modellen alle Teile löschen
+  if (!path.startsWith(modelsDir())) throw new Error(t('Path is outside the models folder'))
+  // For multi-part models delete all parts
   const file = basename(path)
   if (SPLIT.test(file)) {
     const prefix = file.replace(SPLIT, '')
@@ -118,17 +119,17 @@ function findVariant(id: string): ModelVariant | undefined {
   return undefined
 }
 
-/** Lädt alle Dateien einer Variante nacheinander. Abgebrochene Downloads werden fortgesetzt. */
+/** Downloads all files of a variant one after another. Interrupted downloads are resumed. */
 export async function downloadModel(id: string, onProgress: (p: DownloadProgress) => void): Promise<void> {
   const variant = findVariant(id)
-  if (!variant) throw new Error(`Unbekannte Modell-Variante: ${id}`)
+  if (!variant) throw new Error(t('Unknown model variant: {id}', { id }))
   if (activeDownloads.has(id)) return
 
   const controller = new AbortController()
   activeDownloads.set(id, controller)
   await mkdir(modelsDir(), { recursive: true })
   const total = variant.sizeBytes
-  let doneBefore = 0 // Bytes der bereits fertigen Teile
+  let doneBefore = 0 // bytes of the parts already finished
 
   try {
     for (const file of variant.files) {
@@ -145,8 +146,8 @@ export async function downloadModel(id: string, onProgress: (p: DownloadProgress
         signal: controller.signal,
         headers: start > 0 ? { Range: `bytes=${start}-` } : {}
       })
-      if (!res.ok || !res.body) throw new Error(`Download fehlgeschlagen (HTTP ${res.status})`)
-      if (res.status !== 206) start = 0 // Server unterstützt kein Fortsetzen
+      if (!res.ok || !res.body) throw new Error(t('Download failed (HTTP {status})', { status: res.status }))
+      if (res.status !== 206) start = 0 // server doesn't support resuming
 
       let received = start
       let lastEmit = 0
@@ -166,7 +167,7 @@ export async function downloadModel(id: string, onProgress: (p: DownloadProgress
     onProgress({ id, received: total, total, done: true })
   } catch (err) {
     const aborted = controller.signal.aborted
-    onProgress({ id, received: 0, total, done: true, error: aborted ? 'Abgebrochen' : String(err) })
+    onProgress({ id, received: 0, total, done: true, error: aborted ? 'cancelled' : String(err) })
   } finally {
     activeDownloads.delete(id)
   }

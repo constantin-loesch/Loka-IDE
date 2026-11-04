@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { PortInfo, TerminalInfo, TerminalTarget } from '../../../shared/types'
 import { Icon } from './Icon'
 import TerminalView from './TerminalView'
+import { t } from '../i18n'
 
 export type PanelTab = 'terminal' | 'ports' | 'output'
 
@@ -33,75 +34,75 @@ export default function BottomPanel(p: Props): React.JSX.Element {
           Ports {p.ports.length > 0 && <span className="count">{p.ports.length}</span>}
         </button>
         <button className={p.tab === 'output' ? 'active' : ''} onClick={() => p.onTab('output')}>
-          Ausgabe
+          {t('Output')}
         </button>
         <span className="spacer" />
         {p.tab === 'terminal' && (
           <>
-            <button className="icon-btn" title="Neues Terminal (⌃⇧`)" onClick={() => p.onNewTerminal('local')} disabled={!p.hasRoot}>
+            <button className="icon-btn" title={t('New terminal (⌃⇧`)')} onClick={() => p.onNewTerminal('local')} disabled={!p.hasRoot}>
               <Icon name="plus" size={16} />
             </button>
             <button
               className="icon-btn"
-              title={p.containerRunning ? 'Neues Terminal im Devcontainer' : 'Devcontainer läuft nicht'}
+              title={p.containerRunning ? t('New terminal in the dev container') : t('Dev container is not running')}
               onClick={() => p.onNewTerminal('container')}
               disabled={!p.containerRunning}
             >
               <Icon name="container" size={16} />
             </button>
             {p.activeTerminal && (
-              <button className="icon-btn" title="Terminal beenden" onClick={() => p.onKillTerminal(p.activeTerminal!)}>
+              <button className="icon-btn" title={t('Kill terminal')} onClick={() => p.onKillTerminal(p.activeTerminal!)}>
                 <Icon name="trash" size={15} />
               </button>
             )}
           </>
         )}
         {p.tab === 'output' && (
-          <button className="icon-btn" title="Ausgabe leeren" onClick={p.onClearOutput}>
+          <button className="icon-btn" title={t('Clear output')} onClick={p.onClearOutput}>
             <Icon name="trash" size={15} />
           </button>
         )}
-        <button className="icon-btn" title="Bereich schließen" onClick={p.onClose}>
+        <button className="icon-btn" title={t('Close panel')} onClick={p.onClose}>
           <Icon name="close" size={15} />
         </button>
       </div>
 
       <div className="panel-body">
-        {/* Terminals bleiben immer eingehängt, damit Verlauf und laufende Programme erhalten bleiben */}
+        {/* Terminals always stay mounted so history and running programs are kept */}
         <div className="terminal-area" style={{ display: p.tab === 'terminal' ? 'flex' : 'none' }}>
           <div className="terminal-stack">
             {p.terminals.length === 0 && (
               <div className="empty-hint">
                 {p.hasRoot ? (
                   <button className="btn" onClick={() => p.onNewTerminal('local')}>
-                    <Icon name="terminal" size={15} /> Terminal öffnen
+                    <Icon name="terminal" size={15} /> {t('Open terminal')}
                   </button>
                 ) : (
-                  'Öffne einen Ordner, um ein Terminal zu starten.'
+                  t('Open a folder to start a terminal.')
                 )}
               </div>
             )}
-            {p.terminals.map((t) => (
-              <TerminalView key={t.id} id={t.id} visible={p.visible && p.tab === 'terminal' && t.id === p.activeTerminal} />
+            {p.terminals.map((term) => (
+              <TerminalView key={term.id} id={term.id} visible={p.visible && p.tab === 'terminal' && term.id === p.activeTerminal} />
             ))}
           </div>
           {p.terminals.length > 1 && (
             <div className="terminal-list">
-              {p.terminals.map((t) => (
+              {p.terminals.map((term) => (
                 <div
-                  key={t.id}
-                  className={`terminal-item ${t.id === p.activeTerminal ? 'active' : ''}`}
-                  onClick={() => p.onSelectTerminal(t.id)}
-                  title={t.cwd}
+                  key={term.id}
+                  className={`terminal-item ${term.id === p.activeTerminal ? 'active' : ''}`}
+                  onClick={() => p.onSelectTerminal(term.id)}
+                  title={term.cwd}
                 >
-                  <Icon name={t.target === 'container' ? 'container' : 'terminal'} size={13} />
-                  <span>{t.title}</span>
+                  <Icon name={term.target === 'container' ? 'container' : 'terminal'} size={13} />
+                  <span>{term.title}</span>
                   <button
                     className="icon-btn"
-                    title="Beenden"
+                    title={t('Kill')}
                     onClick={(e) => {
                       e.stopPropagation()
-                      p.onKillTerminal(t.id)
+                      p.onKillTerminal(term.id)
                     }}
                   >
                     <Icon name="close" size={12} />
@@ -126,7 +127,7 @@ function PortsView({ ports, containerRunning }: { ports: PortInfo[]; containerRu
   const add = async (): Promise<void> => {
     const port = Number(value.trim())
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      setError('Port zwischen 1 und 65535 eingeben')
+      setError(t('Enter a port between 1 and 65535'))
       return
     }
     try {
@@ -144,9 +145,9 @@ function PortsView({ ports, containerRunning }: { ports: PortInfo[]; containerRu
         <thead>
           <tr>
             <th>Port</th>
-            <th>Weitergeleitete Adresse</th>
-            <th>Quelle</th>
-            <th>Prozess</th>
+            <th>{t('Forwarded address')}</th>
+            <th>{t('Source')}</th>
+            <th>{t('Process')}</th>
             <th />
           </tr>
         </thead>
@@ -157,22 +158,22 @@ function PortsView({ ports, containerRunning }: { ports: PortInfo[]; containerRu
                 <span className={`port-dot ${p.source}`} /> {p.port}
               </td>
               <td>
-                <button className="link-btn mono" onClick={() => void window.api.openUrl(p.url)} title="Im Browser öffnen">
+                <button className="link-btn mono" onClick={() => void window.api.openUrl(p.url)} title={t('Open in browser')}>
                   {p.url.replace('http://', '')}
                 </button>
-                {p.localPort && p.localPort !== p.port && <span className="muted"> (Port {p.port} war belegt)</span>}
+                {p.localPort && p.localPort !== p.port && <span className="muted"> {t('(port {port} was taken)', { port: p.port })}</span>}
               </td>
-              <td>{p.source === 'container' ? 'Devcontainer' : 'Terminal'}</td>
-              <td className="muted">{p.process ?? (p.forwarded ? 'fest eingetragen' : 'automatisch')}</td>
+              <td>{p.source === 'container' ? t('Dev container') : t('Terminal')}</td>
+              <td className="muted">{p.process ?? (p.forwarded ? t('pinned') : t('automatic'))}</td>
               <td className="port-actions">
-                <button className="icon-btn" title="Im Browser öffnen" onClick={() => void window.api.openUrl(p.url)}>
+                <button className="icon-btn" title={t('Open in browser')} onClick={() => void window.api.openUrl(p.url)}>
                   <Icon name="globe" size={14} />
                 </button>
-                <button className="icon-btn" title="Adresse kopieren" onClick={() => void window.api.copy(p.url)}>
+                <button className="icon-btn" title={t('Copy address')} onClick={() => void window.api.copy(p.url)}>
                   <Icon name="copy" size={14} />
                 </button>
                 {(p.source === 'container' || p.forwarded) && (
-                  <button className="icon-btn" title="Weiterleitung beenden" onClick={() => void window.api.ports.unforward(p.port)}>
+                  <button className="icon-btn" title={t('Stop forwarding')} onClick={() => void window.api.ports.unforward(p.port)}>
                     <Icon name="close" size={14} />
                   </button>
                 )}
@@ -182,8 +183,7 @@ function PortsView({ ports, containerRunning }: { ports: PortInfo[]; containerRu
           {ports.length === 0 && (
             <tr>
               <td colSpan={5} className="muted ports-empty">
-                Noch keine Ports. Startet ein Programm im Terminal oder im Devcontainer einen Server (z. B. <code>npm run dev</code>),
-                erscheint er hier automatisch.
+                {t('No ports yet. When a program in the terminal or in the dev container starts a server (e.g.')} <code>npm run dev</code>{t('), it shows up here automatically.')}
               </td>
             </tr>
           )}
@@ -202,11 +202,11 @@ function PortsView({ ports, containerRunning }: { ports: PortInfo[]; containerRu
             setValue(e.target.value)
             setError(null)
           }}
-          placeholder={containerRunning ? 'Port aus dem Container weiterleiten, z. B. 8080' : 'Port eintragen, z. B. 8080'}
+          placeholder={containerRunning ? t('Forward a port from the container, e.g. 8080') : t('Enter a port, e.g. 8080')}
           inputMode="numeric"
         />
         <button className="btn" type="submit">
-          <Icon name="plug" size={14} /> Port weiterleiten
+          <Icon name="plug" size={14} /> {t('Forward port')}
         </button>
         {error && <span className="err-text">{error}</span>}
       </form>
@@ -222,7 +222,7 @@ function OutputView({ text }: { text: string }): React.JSX.Element {
   }, [text])
   return (
     <pre className="output-view" ref={ref}>
-      {text || 'Hier erscheint die Ausgabe beim Starten und Bauen des Devcontainers.'}
+      {text || t('The output of starting and building the dev container appears here.')}
     </pre>
   )
 }

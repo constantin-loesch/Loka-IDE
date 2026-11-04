@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { Lang } from '../shared/i18n'
 import type {
   AgentOpenFile,
   ApprovalAnswer,
@@ -28,7 +29,7 @@ import type {
   UpdateState
 } from '../shared/types'
 
-/** Abonniert ein Event und gibt eine Funktion zum Abmelden zurück. */
+/** Subscribes to an event and returns a function to unsubscribe. */
 function on<T>(channel: string, cb: (payload: T) => void): () => void {
   const handler = (_e: IpcRendererEvent, payload: T): void => cb(payload)
   ipcRenderer.on(channel, handler)
@@ -36,8 +37,10 @@ function on<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 const api = {
-  /** 'darwin', 'linux' oder 'win32' */
+  /** 'darwin', 'linux' or 'win32' */
   platform: process.platform,
+  /** UI language, decided by the main process (system language or setting) */
+  lang: ipcRenderer.sendSync('i18n:lang') as Lang,
   system: {
     info: (): Promise<SystemInfo> => ipcRenderer.invoke('system:info'),
     hardware: (): Promise<HardwareInfo> => ipcRenderer.invoke('system:hardware'),
@@ -53,10 +56,10 @@ const api = {
     createFile: (path: string): Promise<void> => ipcRenderer.invoke('fs:createFile', path),
     createDir: (path: string): Promise<void> => ipcRenderer.invoke('fs:createDir', path),
     rename: (from: string, to: string): Promise<void> => ipcRenderer.invoke('fs:rename', from, to),
-    /** In den Papierkorb verschieben */
+    /** Move to the trash */
     trash: (path: string): Promise<void> => ipcRenderer.invoke('fs:trash', path),
     reveal: (path: string): Promise<void> => ipcRenderer.invoke('fs:reveal', path),
-    /** Diese Ordner auf Änderungen beobachten (ersetzt die bisherige Liste) */
+    /** Watch these folders for changes (replaces the previous list) */
     watch: (dirs: string[]): Promise<void> => ipcRenderer.invoke('fs:watch', dirs),
     onChanged: (cb: (dir: string) => void) => on('fs:changed', cb)
   },
@@ -71,7 +74,7 @@ const api = {
   },
   ports: {
     list: (): Promise<PortInfo[]> => ipcRenderer.invoke('ports:list'),
-    /** Liefert den lokalen Port, unter dem der Dienst erreichbar ist */
+    /** Returns the local port under which the service is reachable */
     forward: (port: number): Promise<number> => ipcRenderer.invoke('ports:forward', port),
     unforward: (port: number): Promise<void> => ipcRenderer.invoke('ports:unforward', port),
     setProject: (dir: string | null): Promise<void> => ipcRenderer.invoke('ports:setProject', dir),
@@ -97,9 +100,9 @@ const api = {
     info: (): Promise<UpdateInfo> => ipcRenderer.invoke('update:info'),
     state: (): Promise<UpdateState> => ipcRenderer.invoke('update:state'),
     check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
-    /** Neue Version holen und bauen (Fortschritt über onState/onLog) */
+    /** Fetch and build the new version (progress via onState/onLog) */
     install: (): Promise<void> => ipcRenderer.invoke('update:install'),
-    /** Alte App gegen die neue tauschen und neu starten */
+    /** Swap the old app for the new one and restart */
     restart: (): Promise<void> => ipcRenderer.invoke('update:restart'),
     onState: (cb: (s: UpdateState) => void) => on('update:state', cb),
     onLog: (cb: (text: string) => void) => on('update:log', cb)
@@ -137,13 +140,13 @@ const api = {
     account: (): Promise<GitHubAccount | null> => ipcRenderer.invoke('github:account'),
     connect: (token: string): Promise<GitHubAccount> => ipcRenderer.invoke('github:connect', token),
     disconnect: (): Promise<void> => ipcRenderer.invoke('github:disconnect'),
-    /** Wo der Token gespeichert wird (Schlüsselbund, Datei …) */
+    /** Where the token is stored (keychain, file …) */
     storage: (): Promise<string> => ipcRenderer.invoke('github:storage'),
     publish: (dir: string, name: string, isPrivate: boolean): Promise<string> =>
       ipcRenderer.invoke('github:publish', dir, name, isPrivate)
   },
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('shell:openUrl', url),
-  /** Text in die Zwischenablage */
+  /** Text to the clipboard */
   copy: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   settings: {
     get: (): Promise<ModelSettings> => ipcRenderer.invoke('settings:get'),
@@ -155,7 +158,7 @@ const api = {
     onFileChanged: (cb: (path: string) => void) => on('agent:fileChanged', cb),
     onApproval: (cb: (req: ApprovalRequest) => void) => on('agent:approval', cb),
     answer: (a: ApprovalAnswer): Promise<void> => ipcRenderer.invoke('agent:answer', a),
-    /** Alle Dateiänderungen einer Antwort zurücknehmen; liefert die Anzahl der Dateien */
+    /** Revert all file changes of one answer; returns the number of files */
     revert: (requestId: string): Promise<number> => ipcRenderer.invoke('agent:revert', requestId)
   },
   session: {

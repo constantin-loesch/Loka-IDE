@@ -1,5 +1,5 @@
-// Sammelt die Lizenzen aller Pakete, die in der fertigen App stecken, in THIRD_PARTY_LICENSES.txt.
-// Aufruf: node scripts/licenses.mjs (läuft automatisch vor `npm run app`)
+// Collects the licenses of all packages included in the finished app into THIRD_PARTY_LICENSES.txt.
+// Usage: node scripts/licenses.mjs (runs automatically before `npm run app`)
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
-// Laufzeit-Abhängigkeiten plus Pakete, die Vite in die Oberfläche bündelt (stehen in devDependencies)
+// Runtime dependencies plus packages Vite bundles into the UI (listed in devDependencies)
 const BUNDLED = ['react', 'react-dom', 'monaco-editor', '@monaco-editor/react', '@xterm/xterm', '@xterm/addon-fit']
 const start = [...Object.keys(pkg.dependencies ?? {}), ...BUNDLED]
 
-/** Findet ein Paket so, wie Node es von `fromDir` aus auflösen würde. */
+/** Finds a package the way Node would resolve it from `fromDir`. */
 function resolvePkg(name, fromDir) {
   let dir = fromDir
   for (;;) {
@@ -45,29 +45,29 @@ for (const name of start) visit(name, root)
 
 const entries = [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
 
-// llama.cpp steckt in node-llama-cpp (als vorkompilierte Bibliothek)
+// llama.cpp is part of node-llama-cpp (as a precompiled library)
 const llamaInfo = join(root, 'node_modules/node-llama-cpp/llama/llama.cpp.info.json')
-const llamaTag = existsSync(llamaInfo) ? JSON.parse(readFileSync(llamaInfo, 'utf8')).tag : 'unbekannt'
+const llamaTag = existsSync(llamaInfo) ? JSON.parse(readFileSync(llamaInfo, 'utf8')).tag : 'unknown'
 
-let out = `Lokal IDE – Lizenzen von Drittanbieter-Software
-================================================
+let out = `Lokal IDE – Third-party software licenses
+=========================================
 
-Lokal IDE nutzt die folgenden Open-Source-Pakete. Ihre Lizenztexte stehen unten.
-Electron liefert zusätzlich die Lizenzen von Chromium und Node.js in der App mit
-(LICENSE.electron.txt und LICENSES.chromium.html im App-Bundle).
+Lokal IDE uses the following open source packages. Their license texts are below.
+Electron also ships the licenses of Chromium and Node.js inside the app
+(LICENSE.electron.txt and LICENSES.chromium.html in the app bundle).
 
-llama.cpp (https://github.com/ggml-org/llama.cpp), Version ${llamaTag}, MIT-Lizenz –
-eingebunden über node-llama-cpp.
+llama.cpp (https://github.com/ggml-org/llama.cpp), version ${llamaTag}, MIT license –
+included via node-llama-cpp.
 
-Automatisch erzeugt von scripts/licenses.mjs.
+Generated automatically by scripts/licenses.mjs.
 
 `
 for (const e of entries) {
-  out += `\n${'-'.repeat(78)}\n${e.name} ${e.version} – ${e.license}\n${e.repo}\n\n${e.text ?? `(Kein Lizenztext im Paket enthalten – Lizenz laut package.json: ${e.license})`}\n`
+  out += `\n${'-'.repeat(78)}\n${e.name} ${e.version} – ${e.license}\n${e.repo}\n\n${e.text ?? `(No license text included in the package – license according to package.json: ${e.license})`}\n`
 }
 
 writeFileSync(join(root, 'THIRD_PARTY_LICENSES.txt'), out)
-console.log(`THIRD_PARTY_LICENSES.txt: ${entries.length} Pakete`)
+console.log(`THIRD_PARTY_LICENSES.txt: ${entries.length} packages`)
 const counts = {}
 for (const e of entries) counts[e.license] = (counts[e.license] ?? 0) + 1
 console.log(Object.entries(counts).map(([l, n]) => `${l}: ${n}`).join(', '))

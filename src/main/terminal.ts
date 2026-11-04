@@ -1,4 +1,4 @@
-// Integriertes Terminal: echte Pseudo-Terminals (node-pty) – lokal oder im Devcontainer.
+// Integrated terminal: real pseudo terminals (node-pty) – local or in the dev container.
 import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
@@ -6,6 +6,7 @@ import * as pty from 'node-pty'
 import type { TerminalCreateOptions, TerminalInfo } from '../shared/types'
 import { defaultShell, userPath } from './agentTools'
 import * as devcontainer from './devcontainer'
+import { t } from './i18n'
 
 interface Term {
   info: TerminalInfo
@@ -17,12 +18,12 @@ let counter = 0
 
 type Send = (channel: string, payload: unknown) => void
 
-/** Shell im Container: bash, sonst sh. */
+/** Shell in the container: bash, otherwise sh. */
 const CONTAINER_SHELL = 'if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi'
 
 /**
- * node-pty startet Shells über „spawn-helper“. Fehlt dessen Ausführungsrecht (passiert bei
- * manchen npm-Installationen), schlägt jeder Start mit „posix_spawnp failed“ fehl.
+ * node-pty starts shells via “spawn-helper”. If it lacks the execute permission (happens with
+ * some npm installs), every start fails with “posix_spawnp failed”.
  */
 let helperChecked = false
 function ensureSpawnHelper(): void {
@@ -35,7 +36,7 @@ function ensureSpawnHelper(): void {
       if (existsSync(helper) && (statSync(helper).mode & 0o111) === 0) chmodSync(helper, 0o755)
     }
   } catch {
-    /* schreibgeschützt (signiertes App-Bundle) – dann hat es der Build schon richtig gemacht */
+    /* read-only (signed app bundle) – then the build already got it right */
   }
 }
 
@@ -47,8 +48,8 @@ export async function create(opts: TerminalCreateOptions, send: Send): Promise<T
   let proc: pty.IPty
 
   if (opts.target === 'container') {
-    if (!(await devcontainer.runningContainer(opts.cwd))) throw new Error('Der Devcontainer läuft nicht. Starte ihn zuerst.')
-    // `devcontainer exec` setzt Benutzer, Umgebung und Arbeitsordner aus der devcontainer.json
+    if (!(await devcontainer.runningContainer(opts.cwd))) throw new Error(t('The dev container is not running. Start it first.'))
+    // `devcontainer exec` sets user, environment and working folder from devcontainer.json
     const cmd = await devcontainer.cliCommand(['exec', '--workspace-folder', opts.cwd, 'sh', '-c', CONTAINER_SHELL])
     proc = pty.spawn(cmd.file, cmd.args, {
       name: 'xterm-256color',
@@ -85,7 +86,7 @@ export async function create(opts: TerminalCreateOptions, send: Send): Promise<T
   }
   terms.set(id, { info, proc })
 
-  // Befehl erst schicken, wenn die Shell bereit ist (erste Ausgabe = Prompt)
+  // Only send the command once the shell is ready (first output = prompt)
   let pending = opts.command
   const runPending = (): void => {
     if (!pending) return
@@ -117,7 +118,7 @@ export function resize(id: string, cols: number, rows: number): void {
     try {
       t.proc.resize(Math.floor(cols), Math.floor(rows))
     } catch {
-      /* Prozess gerade beendet */
+      /* process just ended */
     }
   }
 }
@@ -129,7 +130,7 @@ export function kill(id: string): void {
   try {
     t.proc.kill()
   } catch {
-    /* schon beendet */
+    /* already ended */
   }
 }
 
@@ -141,7 +142,7 @@ export function list(): TerminalInfo[] {
   return [...terms.values()].map((t) => t.info)
 }
 
-/** Prozess-IDs der lokalen Shells – für die Erkennung offener Ports. */
+/** Process IDs of the local shells – for detecting open ports. */
 export function localPids(): number[] {
   return [...terms.values()].filter((t) => t.info.target === 'local').map((t) => t.proc.pid)
 }

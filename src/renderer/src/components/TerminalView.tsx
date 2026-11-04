@@ -2,26 +2,27 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { t } from '../i18n'
 
 interface Instance {
   term: Terminal
   fit: FitAddon
-  /** Wird einmal geöffnet und dann zwischen den Containern verschoben */
+  /** Opened once and then moved between containers */
   el: HTMLDivElement
 }
 
 const instances = new Map<string, Instance>()
-/** Ausgabe, die ankommt, bevor das Terminal gezeichnet wurde */
+/** Output that arrives before the terminal was drawn */
 const early = new Map<string, string[]>()
 
-// Ein gemeinsamer Empfänger für alle Terminals
+// One shared receiver for all terminals
 window.api.terminal.onData(({ id, data }) => {
   const inst = instances.get(id)
   if (inst) inst.term.write(data)
   else early.set(id, [...(early.get(id) ?? []), data])
 })
 window.api.terminal.onExit(({ id, code }) => {
-  instances.get(id)?.term.write(`\r\n\x1b[90m[Prozess beendet mit Code ${code}]\x1b[0m\r\n`)
+  instances.get(id)?.term.write(`\r\n\x1b[90m[${t('Process exited with code {code}', { code })}]\x1b[0m\r\n`)
 })
 
 const THEME = {
@@ -64,7 +65,7 @@ function instance(id: string): Instance {
   term.loadAddon(fit)
   term.onData((d) => void window.api.terminal.write(id, d))
   term.onResize(({ cols, rows }) => void window.api.terminal.resize(id, cols, rows))
-  // Cmd+C kopiert die Auswahl, Cmd+K leert das Terminal (wie im macOS-Terminal)
+  // Cmd+C copies the selection, Cmd+K clears the terminal (like in the macOS Terminal)
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown' || !(e.metaKey || (e.ctrlKey && e.shiftKey))) return true
     const k = e.key.toLowerCase()
@@ -95,7 +96,7 @@ export function focusTerminal(id: string): void {
   instances.get(id)?.term.focus()
 }
 
-/** Zeigt ein Terminal an. Bleibt beim Tab-Wechsel erhalten, nur das DOM-Element wandert. */
+/** Shows a terminal. Survives tab switches, only the DOM element moves. */
 export default function TerminalView({ id, visible }: { id: string; visible: boolean }): React.JSX.Element {
   const box = useRef<HTMLDivElement>(null)
 
@@ -109,12 +110,12 @@ export default function TerminalView({ id, visible }: { id: string; visible: boo
       early.delete(id)
     }
     const doFit = (): void => {
-      // Ausgeblendet hat der Container keine Größe
+      // When hidden the container has no size
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         try {
           inst.fit.fit()
         } catch {
-          /* noch nicht gezeichnet */
+          /* not drawn yet */
         }
       }
     }
@@ -134,7 +135,7 @@ export default function TerminalView({ id, visible }: { id: string; visible: boo
         try {
           inst?.fit.fit()
         } catch {
-          /* ignorieren */
+          /* ignore */
         }
         inst?.term.focus()
       })

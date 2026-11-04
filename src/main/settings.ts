@@ -1,4 +1,4 @@
-// Speichert die Modell-Parameter dauerhaft in userData/settings.json.
+// Stores the model parameters permanently in userData/settings.json.
 import { app } from 'electron'
 import { readFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import type { ModelSettings } from '../shared/types'
 import { jetson } from './hardware'
 
-export const DEFAULT_SYSTEM_PROMPT = `Du bist ein hilfreicher Programmier-Assistent in einer lokalen IDE.
-Antworte präzise und in der Sprache des Nutzers. Setze Code immer in Markdown-Codeblöcke mit Sprachangabe.
-Wenn der Nutzer Code aus seinem Editor mitschickt, beziehe dich konkret darauf.`
+export const DEFAULT_SYSTEM_PROMPT = `You are a helpful programming assistant in a local IDE.
+Answer precisely and in the user's language. Always put code in Markdown code blocks with a language tag.
+If the user sends code from their editor, refer to it specifically.`
 
 export const DEFAULTS: ModelSettings = {
   temperature: 0.4,
@@ -26,9 +26,10 @@ export const DEFAULTS: ModelSettings = {
   commandTimeout: 120,
   contextSize: 8192,
   gpuLayers: 'auto',
-  // Auf dem Jetson (CUDA, gemeinsamer Speicher) schneller und sparsamer beim Kontext
+  // On the Jetson (CUDA, shared memory) faster and more memory-efficient for the context
   flashAttention: !!jetson(),
-  gpuBackend: 'auto'
+  gpuBackend: 'auto',
+  language: 'auto'
 }
 
 const file = (): string => join(app.getPath('userData'), 'settings.json')

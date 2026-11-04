@@ -1,43 +1,45 @@
-// Werkzeuge des Modells und die Freigabe-Regeln für alles, was etwas verändert.
+// The model's tools and the approval rules for everything that changes something.
+// Texts for the model are English; texts shown in the chat go through t().
 import { randomUUID } from 'node:crypto'
 import type { AgentOpenFile, ApprovalAnswer, ApprovalRequest, ChatMode } from '../shared/types'
 import { rm, writeFile } from 'node:fs/promises'
 import * as tools from './agentTools'
 import { getSettings } from './settings'
+import { t } from './i18n'
 
-/** Alles, was ein Werkzeug von außen braucht. */
+/** Everything a tool needs from outside. */
 export interface AgentContext {
   root: string
   requestId: string
   signal: AbortSignal
-  /** Fortschritt in der Oberfläche anzeigen */
+  /** Show progress in the UI */
   report: (label: string) => void
-  /** Ausgabe zum letzten Schritt anzeigen (z. B. Terminal-Ausgabe) */
+  /** Show output for the last step (e.g. terminal output) */
   reportResult: (text: string) => void
   openFile: (f: AgentOpenFile) => void
-  /** Nach dem Schreiben – damit der Editor die Datei neu lädt */
+  /** After writing – so the editor reloads the file */
   fileChanged: (path: string) => void
-  /** Fragt den Nutzer und wartet auf seine Antwort */
+  /** Asks the user and waits for the answer */
   askUser: (req: ApprovalRequest) => void
 }
 
 type Params = Record<string, any>
 
 interface Tool {
-  /** Ab welchem Modus das Werkzeug verfügbar ist */
+  /** From which mode on the tool is available */
   mode: 'read' | 'agent'
   description: string
   params: Record<string, { type: 'string' | 'integer'; description?: string }>
-  /** Werte für fehlende Parameter – kleine Modelle lassen gern welche weg */
+  /** Values for missing parameters – small models like to leave some out */
   defaults: Params
   label: (p: Params) => string
   run: (ctx: AgentContext, p: Params) => Promise<string>
 }
 
-// ---------- Freigaben ----------
+// ---------- Approvals ----------
 
 const pending = new Map<string, { resolve: (a: ApprovalAnswer) => void; signal: AbortSignal }>()
-/** Für diesen Chat dauerhaft erlaubte Arten von Aktionen */
+/** Kinds of actions permanently allowed for this chat */
 const allowedForChat = new Set<'files' | 'commands'>()
 
 export function answerApproval(a: ApprovalAnswer): void {
@@ -45,16 +47,16 @@ export function answerApproval(a: ApprovalAnswer): void {
   pending.delete(a.id)
 }
 
-/** Neuer Chat: dauerhafte Erlaubnisse verfallen. */
+/** New chat: permanent permissions expire. */
 export function resetApprovals(): void {
   allowedForChat.clear()
-  for (const [id, p] of pending) p.resolve({ id, approved: false, reason: 'Chat wurde zurückgesetzt.' })
+  for (const [id, p] of pending) p.resolve({ id, approved: false, reason: 'Chat was reset.' })
   pending.clear()
 }
 
 /**
- * Entscheidet, ob eine Aktion ohne Nachfrage laufen darf, und fragt sonst den Nutzer.
- * Gefährliche Befehle werden immer nachgefragt.
+ * Decides whether an action may run without asking, otherwise asks the user.
+ * Dangerous commands are always asked.
  */
 async function approve(ctx: AgentContext, req: Omit<ApprovalRequest, 'id' | 'requestId'>): Promise<ApprovalAnswer> {
   const id = randomUUID()
@@ -67,16 +69,16 @@ async function approve(ctx: AgentContext, req: Omit<ApprovalRequest, 'id' | 'req
 
   const answer = await new Promise<ApprovalAnswer>((resolve) => {
     pending.set(id, { resolve, signal: ctx.signal })
-    ctx.signal.addEventListener('abort', () => answerApproval({ id, approved: false, reason: 'Abgebrochen.' }), { once: true })
+    ctx.signal.addEventListener('abort', () => answerApproval({ id, approved: false, reason: 'Cancelled.' }), { once: true })
     ctx.askUser({ ...req, id, requestId: ctx.requestId })
   })
   if (answer.approved && answer.always && !req.danger) allowedForChat.add(kind)
   return answer
 }
 
-// ---------- Sicherungen für „Rückgängig“ ----------
+// ---------- Backups for “undo” ----------
 
-/** Pro Chat-Anfrage der ursprüngliche Inhalt jeder geänderten Datei (null = Datei war neu). */
+/** Per chat request the original content of every changed file (null = file was new). */
 const backups = new Map<string, Map<string, string | null>>()
 
 function rememberOriginal(requestId: string, abs: string, before: string, isNew: boolean): void {
@@ -84,14 +86,14 @@ function rememberOriginal(requestId: string, abs: string, before: string, isNew:
   if (!files) {
     files = new Map()
     backups.set(requestId, files)
-    // Nur die letzten 30 Antworten aufheben
+    // Keep only the last 30 answers
     if (backups.size > 30) backups.delete(backups.keys().next().value!)
   }
-  // Nur den Stand VOR der ersten Änderung merken
+  // Only remember the state BEFORE the first change
   if (!files.has(abs)) files.set(abs, isNew ? null : before)
 }
 
-/** Stellt alle Dateien wieder her, die eine Antwort geändert hat. Liefert die Pfade. */
+/** Restores all files an answer changed. Returns the paths. */
 export async function revertRequest(requestId: string): Promise<string[]> {
   const files = backups.get(requestId)
   if (!files) return []
@@ -105,7 +107,7 @@ export async function revertRequest(requestId: string): Promise<string[]> {
   return restored
 }
 
-/** Namen von Funktionen, Klassen, Konstanten und Exporten – um versehentlich Gelöschtes zu erkennen. */
+/** Names of functions, classes, constants and exports – to detect accidentally deleted code. */
 function definedNames(code: string): Set<string> {
   const names = new Set<string>()
   const re = /\b(?:function\s*\*?|def|class|const|let|var|fn|func)\s+([A-Za-z_$][\w$]*)|\b(module\.exports|export\s+default)\b/g
@@ -113,100 +115,103 @@ function definedNames(code: string): Set<string> {
   return names
 }
 
-/** Schreibt eine freigegebene Änderung, sichert den alten Stand und prüft die Syntax. */
+/** Writes an approved change, backs up the old state and checks the syntax. */
 async function commitWrite(ctx: AgentContext, plan: tools.PlannedWrite, done: string): Promise<string> {
   rememberOriginal(ctx.requestId, plan.abs, plan.before, plan.isNew)
   await tools.applyWrite(plan)
   ctx.fileChanged(plan.abs)
-  // Kleine Modelle schreiben Dateien gern neu und vergessen dabei Teile
+  // Small models like to rewrite files and forget parts of them
   if (!plan.isNew) {
     const after = definedNames(plan.after)
     const lost = [...definedNames(plan.before)].filter((n) => !after.has(n))
-    if (lost.length) done += `\n⚠ Achtung: Diese Definitionen gab es vorher, jetzt fehlen sie: ${lost.join(', ')}. Falls das nicht gewollt war, stelle sie wieder her.`
+    if (lost.length) done += `\n⚠ Warning: these definitions existed before and are now missing: ${lost.join(', ')}. If that was not intended, restore them.`
   }
   const syntax = await tools.syntaxCheck(plan.abs)
   if (syntax) {
-    ctx.reportResult(`Syntaxfehler in ${plan.rel}:\n${syntax}`)
-    return `${done}\n⚠ SYNTAXFEHLER in ${plan.rel} – bitte sofort beheben:\n${syntax}`
+    ctx.reportResult(t('Syntax error in {file}:', { file: plan.rel }) + `\n${syntax}`)
+    return `${done}\n⚠ SYNTAX ERROR in ${plan.rel} – fix it right away:\n${syntax}`
   }
-  return `${done} Syntaxprüfung: OK.`
+  return `${done} Syntax check: OK.`
 }
 
 const rejected = (a: ApprovalAnswer): string =>
-  `Der Nutzer hat das abgelehnt${a.reason ? `: ${a.reason}` : '.'} Mach nichts davon eigenmächtig weiter – frag nach oder schlag eine Alternative vor.`
+  `The user declined this${a.reason ? `: ${a.reason}` : '.'} Do not continue with it on your own – ask or suggest an alternative.`
 
-// ---------- Werkzeuge ----------
+// ---------- Tools ----------
 
 export const TOOLS: Record<string, Tool> = {
   list_files: {
     mode: 'read',
-    description: 'Listet Dateien und Unterordner eines Ordners im Projekt auf. "." ist der Projektordner.',
+    description: 'Lists files and subfolders of a folder in the project. "." is the project folder.',
     params: {
-      path: { type: 'string', description: 'Ordner relativ zum Projekt, z. B. "." oder "src"' },
-      depth: { type: 'integer', description: 'Wie viele Ebenen tief (1–4)' }
+      path: { type: 'string', description: 'Folder relative to the project, e.g. "." or "src"' },
+      depth: { type: 'integer', description: 'How many levels deep (1–4)' }
     },
     defaults: { path: '.', depth: 2 },
-    label: (p) => `📂 Ordner ${p.path}`,
+    label: (p) => t('📂 Folder {path}', { path: p.path }),
     run: (ctx, p) => tools.listFiles(ctx.root, String(p.path), Number(p.depth))
   },
   find_files: {
     mode: 'read',
-    description: 'Sucht Dateien nach Namen. Unterstützt * und ? als Platzhalter, sonst Teilstring-Suche im Pfad.',
-    params: { pattern: { type: 'string', description: 'z. B. "*.ts" oder "config"' } },
+    description: 'Finds files by name. Supports * and ? as wildcards, otherwise substring search in the path.',
+    params: { pattern: { type: 'string', description: 'e.g. "*.ts" or "config"' } },
     defaults: { pattern: '' },
-    label: (p) => `🔎 Dateien „${p.pattern}“`,
+    label: (p) => t('🔎 Files “{pattern}”', { pattern: p.pattern }),
     run: (ctx, p) => tools.findFiles(ctx.root, String(p.pattern))
   },
   search_code: {
     mode: 'read',
-    description: 'Durchsucht den Inhalt aller Dateien (Groß-/Kleinschreibung egal, Regex erlaubt). Liefert Datei:Zeile: Text.',
+    description: 'Searches the contents of all files (case-insensitive, regex allowed). Returns file:line: text.',
     params: {
-      query: { type: 'string', description: 'Suchbegriff oder regulärer Ausdruck' },
-      path: { type: 'string', description: 'Ordner oder Datei, in dem gesucht wird; "." für alles' }
+      query: { type: 'string', description: 'Search term or regular expression' },
+      path: { type: 'string', description: 'Folder or file to search in; "." for everything' }
     },
     defaults: { query: '', path: '.' },
-    label: (p) => `🔍 Suche „${p.query}“${p.path !== '.' ? ` in ${p.path}` : ''}`,
+    label: (p) => (p.path !== '.' ? t('🔍 Search “{query}” in {path}', { query: p.query, path: p.path }) : t('🔍 Search “{query}”', { query: p.query })),
     run: (ctx, p) => tools.searchCode(ctx.root, String(p.query), String(p.path))
   },
   read_file: {
     mode: 'read',
-    description: 'Liest eine Textdatei mit Zeilennummern. endLine 0 bedeutet bis zum Ende.',
+    description: 'Reads a text file with line numbers. endLine 0 means up to the end.',
     params: {
-      path: { type: 'string', description: 'Datei relativ zum Projekt' },
+      path: { type: 'string', description: 'File relative to the project' },
       startLine: { type: 'integer' },
       endLine: { type: 'integer' }
     },
     defaults: { path: '', startLine: 1, endLine: 0 },
-    label: (p) => `📄 Liest ${p.path}${p.startLine > 1 || p.endLine > 0 ? ` (Zeile ${p.startLine}–${p.endLine || 'Ende'})` : ''}`,
+    label: (p) =>
+      p.startLine > 1 || p.endLine > 0
+        ? t('📄 Reading {path} (lines {from}–{to})', { path: p.path, from: p.startLine, to: p.endLine || t('end') })
+        : t('📄 Reading {path}', { path: p.path }),
     run: (ctx, p) => tools.readFileLines(ctx.root, String(p.path), Number(p.startLine), Number(p.endLine))
   },
   open_file: {
     mode: 'read',
-    description: 'Öffnet eine Datei im Editor des Nutzers und springt zu einer Zeile, um ihm eine Stelle zu zeigen.',
+    description: 'Opens a file in the user\'s editor and jumps to a line to show them a location.',
     params: {
-      path: { type: 'string', description: 'Datei relativ zum Projekt' },
-      line: { type: 'integer', description: 'Zeilennummer (1 = Anfang)' }
+      path: { type: 'string', description: 'File relative to the project' },
+      line: { type: 'integer', description: 'Line number (1 = start)' }
     },
     defaults: { path: '', line: 1 },
-    label: (p) => `↗ Öffnet ${p.path}${p.line > 1 ? `:${p.line}` : ''}`,
+    label: (p) => t('↗ Opening {path}', { path: `${p.path}${p.line > 1 ? `:${p.line}` : ''}` }),
     run: async (ctx, p) => {
       const path = await tools.resolveForOpen(ctx.root, String(p.path))
       ctx.openFile({ path, line: Math.max(1, Number(p.line) || 1) })
-      return `${p.path} wurde im Editor geöffnet.`
+      return `${p.path} was opened in the editor.`
     }
   },
 
   edit_file: {
     mode: 'agent',
     description:
-      'Ändert eine bestehende Datei: Ersetzt old_text (muss exakt und genau einmal vorkommen, ohne Zeilennummern) durch new_text. Lies die Datei vorher mit read_file.',
+      'Changes an existing file: replaces old_text (must occur exactly once, without line numbers) with new_text. Read the file with read_file first.',
     params: {
-      path: { type: 'string', description: 'Datei relativ zum Projekt' },
-      old_text: { type: 'string', description: 'Exakter bisheriger Text inkl. Einrückung' },
-      new_text: { type: 'string', description: 'Neuer Text' }
+      path: { type: 'string', description: 'File relative to the project' },
+      old_text: { type: 'string', description: 'Exact previous text including indentation' },
+      new_text: { type: 'string', description: 'New text' }
     },
     defaults: { path: '', old_text: '', new_text: '' },
-    label: (p) => `✏️ Ändert ${p.path}`,
+    label: (p) => t('✏️ Editing {path}', { path: p.path }),
     run: async (ctx, p) => {
       const plan = await tools.planEdit(ctx.root, String(p.path), String(p.old_text), String(p.new_text))
       const a = await approve(ctx, {
@@ -217,41 +222,41 @@ export const TOOLS: Record<string, Tool> = {
         after: plan.snippetAfter
       })
       if (!a.approved) return rejected(a)
-      return commitWrite(ctx, plan, `${plan.rel} wurde geändert.`)
+      return commitWrite(ctx, plan, `${plan.rel} was changed.`)
     }
   },
   replace_lines: {
     mode: 'agent',
     description:
-      'Ersetzt in einer bestehenden Datei die Zeilen start_line bis end_line (laut read_file, inklusive) durch new_text. ' +
-      'Oft einfacher als edit_file. Leerer new_text löscht die Zeilen. Zum Einfügen ohne Löschen: end_line = start_line - 1.',
+      'Replaces lines start_line to end_line (as shown by read_file, inclusive) of an existing file with new_text. ' +
+      'Often easier than edit_file. An empty new_text deletes the lines. To insert without deleting: end_line = start_line - 1.',
     params: {
-      path: { type: 'string', description: 'Datei relativ zum Projekt' },
+      path: { type: 'string', description: 'File relative to the project' },
       start_line: { type: 'integer' },
       end_line: { type: 'integer' },
-      new_text: { type: 'string', description: 'Neuer Text für diese Zeilen' }
+      new_text: { type: 'string', description: 'New text for these lines' }
     },
     defaults: { path: '', start_line: 0, end_line: 0, new_text: '' },
-    label: (p) => `✏️ Ändert ${p.path} (Zeile ${p.start_line}–${p.end_line})`,
+    label: (p) => t('✏️ Editing {path} (lines {from}–{to})', { path: p.path, from: p.start_line, to: p.end_line }),
     run: async (ctx, p) => {
       const plan = await tools.planReplaceLines(ctx.root, String(p.path), Number(p.start_line), Number(p.end_line), String(p.new_text))
       const a = await approve(ctx, { kind: 'edit', path: plan.abs, relPath: plan.rel, before: plan.snippetBefore, after: plan.snippetAfter })
       if (!a.approved) return rejected(a)
-      return commitWrite(ctx, plan, `${plan.rel}: Zeilen ${p.start_line}–${p.end_line} ersetzt.`)
+      return commitWrite(ctx, plan, `${plan.rel}: lines ${p.start_line}–${p.end_line} replaced.`)
     }
   },
   write_file: {
     mode: 'agent',
-    description: 'Legt eine neue Datei an oder überschreibt eine Datei komplett mit content. Für kleine Änderungen lieber edit_file benutzen.',
+    description: 'Creates a new file or completely overwrites a file with content. For small changes prefer edit_file.',
     params: {
-      path: { type: 'string', description: 'Datei relativ zum Projekt' },
-      content: { type: 'string', description: 'Vollständiger neuer Inhalt' }
+      path: { type: 'string', description: 'File relative to the project' },
+      content: { type: 'string', description: 'Complete new content' }
     },
     defaults: { path: '', content: '' },
-    label: (p) => `📝 Schreibt ${p.path}`,
+    label: (p) => t('📝 Writing {path}', { path: p.path }),
     run: async (ctx, p) => {
       const plan = await tools.planWrite(ctx.root, String(p.path), String(p.content))
-      if (!plan.isNew && plan.before === plan.after) return `${plan.rel} ist bereits auf diesem Stand.`
+      if (!plan.isNew && plan.before === plan.after) return `${plan.rel} is already in this state.`
       const a = await approve(ctx, {
         kind: 'write',
         path: plan.abs,
@@ -261,30 +266,35 @@ export const TOOLS: Record<string, Tool> = {
         isNew: plan.isNew
       })
       if (!a.approved) return rejected(a)
-      return commitWrite(ctx, plan, plan.isNew ? `${plan.rel} wurde angelegt.` : `${plan.rel} wurde überschrieben.`)
+      return commitWrite(ctx, plan, plan.isNew ? `${plan.rel} was created.` : `${plan.rel} was overwritten.`)
     }
   },
   run_command: {
     mode: 'agent',
     description:
-      'Führt einen Terminal-Befehl im Projektordner aus (z. B. Tests, Build, Linter, git status, npm install) und liefert die Ausgabe. ' +
-      'Keine interaktiven Befehle und keine dauerhaft laufenden Prozesse wie Dev-Server.',
-    params: { command: { type: 'string', description: 'Shell-Befehl, z. B. "npm test"' } },
+      'Runs a terminal command in the project folder (e.g. tests, build, linter, git status, npm install) and returns the output. ' +
+      'No interactive commands and no long-running processes like dev servers.',
+    params: { command: { type: 'string', description: 'Shell command, e.g. "npm test"' } },
     defaults: { command: '' },
     label: (p) => `$ ${p.command}`,
     run: async (ctx, p) => {
       const command = String(p.command).trim()
-      if (!command) return 'Fehler: Kein Befehl angegeben.'
+      if (!command) return 'Error: no command given.'
       const a = await approve(ctx, { kind: 'command', command, danger: tools.dangerOf(command) })
       if (!a.approved) return rejected(a)
       const { output, exitCode, timedOut } = await tools.runCommand(ctx.root, command, getSettings().commandTimeout, ctx.signal)
       const status = timedOut
-        ? `Abgebrochen nach ${getSettings().commandTimeout} s (Zeitlimit).`
+        ? `Aborted after ${getSettings().commandTimeout} s (time limit).`
         : exitCode === 0
-          ? 'Erfolgreich (Exit-Code 0).'
-          : `Fehlgeschlagen (Exit-Code ${exitCode}).`
-      ctx.reportResult(`${output || '(keine Ausgabe)'}\n\n${status}`)
-      return `${status}\nAusgabe:\n${output || '(keine Ausgabe)'}`
+          ? 'Succeeded (exit code 0).'
+          : `Failed (exit code ${exitCode}).`
+      const shown = timedOut
+        ? t('Aborted after {seconds} s (time limit).', { seconds: getSettings().commandTimeout })
+        : exitCode === 0
+          ? t('Succeeded (exit code 0).')
+          : t('Failed (exit code {code}).', { code: String(exitCode) })
+      ctx.reportResult(`${output || t('(no output)')}\n\n${shown}`)
+      return `${status}\nOutput:\n${output || '(no output)'}`
     }
   }
 }
@@ -294,42 +304,43 @@ export function toolsFor(mode: ChatMode): Record<string, Tool> {
   return Object.fromEntries(Object.entries(TOOLS).filter(([, t]) => mode === 'agent' || t.mode === 'read'))
 }
 
-/** Führt Werkzeuge aus, zählt die Aufrufe und meldet sie der Oberfläche. */
-const rejectedByUser = (result: string): boolean => result.startsWith('Der Nutzer hat das abgelehnt')
+/** Did the user decline the action? */
+const rejectedByUser = (result: string): boolean => result.startsWith('The user declined')
 
-/** Hat ein Werkzeug-Aufruf nicht geklappt (Fehler oder vom Nutzer abgelehnt)? */
-export const failed = (result: string): boolean => result.startsWith('Fehler') || rejectedByUser(result)
+/** Did a tool call not work (error or declined by the user)? */
+export const failed = (result: string): boolean => result.startsWith('Error') || rejectedByUser(result)
 
+/** Runs tools, counts the calls and reports them to the UI. */
 export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
   const limit = getSettings().maxToolCalls
   let calls = 0
-  /** Zählt Dateiänderungen – danach dürfen Lesen und Befehle sinnvoll wiederholt werden */
+  /** Counts file changes – after that, reading and commands may sensibly be repeated */
   let version = 0
-  /** Tatsächlich geschriebene Dateien (relativ zum Projekt) */
+  /** Files actually written (relative to the project) */
   const changed = new Set<string>()
-  /** Erfolgreiche Aufrufe, um sinnlose Wiederholungen zu erkennen */
+  /** Successful calls, to detect pointless repetitions */
   const done = new Set<string>()
-  /** Fehlgeschlagene Aufrufe mit ihrer Fehlermeldung – identisch wiederholen bringt nichts */
+  /** Failed calls with their error message – repeating them identically is useless */
   const failedCalls = new Map<string, string>()
-  /** Was wirklich passiert ist – für eine ehrliche Zusammenfassung */
+  /** What really happened – for an honest summary (shown to the user) */
   const log: string[] = []
   let userRejected = false
-  /** Ist der zuletzt ausgeführte Befehl fehlgeschlagen? */
+  /** Did the last executed command fail? */
   let lastCommandFailed = false
   let commandsRun = 0
-  /** Dateien, in denen die letzte Schreibaktion einen Syntaxfehler hinterlassen hat */
+  /** Files in which the last write left a syntax error */
   const syntaxErrors = new Set<string>()
 
   const withDefaults = (tool: Tool, raw: Params): Params => {
-    // Fehlende oder leere Parameter mit Standardwerten auffüllen
+    // Fill missing or empty parameters with defaults
     const p: Params = { ...tool.defaults }
     for (const [k, v] of Object.entries(raw ?? {})) if (v !== null && v !== undefined && v !== '') p[k] = v
-    // Windows-Pfade (".\\a\\b.py") und "./" am Anfang vereinheitlichen
+    // Normalize Windows paths (".\\a\\b.py") and a leading "./"
     if (typeof p.path === 'string') p.path = p.path.replace(/\\/g, '/').replace(/^(\.\/)+(?=.)/, '') || '.'
     return p
   }
   const signature = (name: string, p: Params): string =>
-    // Schreiben mit gleichem Inhalt ist immer sinnlos, Lesen/Befehle erst nach einer Änderung wieder
+    // Writing the same content is always pointless, reading/commands only again after a change
     name === 'write_file' || name === 'edit_file' || name === 'replace_lines' ? `${name}:${JSON.stringify(p)}` : `${name}:${version}:${JSON.stringify(p)}`
 
   return {
@@ -338,7 +349,7 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
     },
     changed,
     log,
-    /** Hat der Nutzer eine Aktion abgelehnt? Dann soll der Agent nicht eigenmächtig weitermachen. */
+    /** Did the user decline an action? Then the agent should not carry on by itself. */
     get userRejected() {
       return userRejected
     },
@@ -349,20 +360,20 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
       return commandsRun
     },
     syntaxErrors,
-    /** Wurde genau dieser Aufruf schon erfolgreich ausgeführt (ohne dass sich seitdem etwas geändert hat)? */
+    /** Was exactly this call already executed successfully (with nothing changed since)? */
     seen(name: string, raw: Params): boolean {
       const tool = available[name]
       return !!tool && done.has(signature(name, withDefaults(tool, raw)))
     },
-    /** Fehlermeldung, falls genau dieser Aufruf schon einmal gescheitert ist */
+    /** Error message if exactly this call has failed before */
     failedBefore(name: string, raw: Params): string | undefined {
       const tool = available[name]
       return tool ? failedCalls.get(signature(name, withDefaults(tool, raw))) : undefined
     },
     async call(name: string, raw: Params): Promise<string> {
       const tool = available[name]
-      if (!tool) return `Fehler: Unbekanntes Werkzeug „${name}“. Verfügbar: ${Object.keys(available).join(', ')}`
-      if (++calls > limit) return `Werkzeug-Limit (${limit}) erreicht. Antworte jetzt mit dem, was du bereits weißt.`
+      if (!tool) return `Error: unknown tool “${name}”. Available: ${Object.keys(available).join(', ')}`
+      if (++calls > limit) return `Tool limit (${limit}) reached. Answer now with what you already know.`
       const p = withDefaults(tool, raw)
       ctx.report(tool.label(p))
       try {
@@ -371,50 +382,50 @@ export function makeRunner(ctx: AgentContext, available: Record<string, Tool>) {
         else {
           done.add(signature(name, p))
           if (name === 'write_file' || name === 'edit_file' || name === 'replace_lines') {
-            if (result.includes('SYNTAXFEHLER')) syntaxErrors.add(String(p.path))
+            if (result.includes('SYNTAX ERROR')) syntaxErrors.add(String(p.path))
             else syntaxErrors.delete(String(p.path))
             changed.add(String(p.path))
             version++
-            log.push(result)
+            log.push(result.replace(/ Syntax check: OK\.$/, ''))
           }
         }
         const what = name === 'run_command' ? `\`${p.command}\`` : `${name} ${p.path ?? ''}`.trim()
         if (rejectedByUser(result)) {
-          log.push(`${what}: von dir abgelehnt`)
+          log.push(t('{what}: declined by you', { what }))
           userRejected = true
         } else if (name === 'run_command') {
           log.push(`${what}: ${result.split('\n')[0]}`)
-          lastCommandFailed = !result.startsWith('Erfolgreich')
+          lastCommandFailed = !result.startsWith('Succeeded')
           commandsRun++
         }
-        else if (failed(result)) log.push(`${what}: ${result.split('\n')[0].replace(/^Fehler: /, 'fehlgeschlagen – ')}`)
+        else if (failed(result)) log.push(t('{what}: failed – {reason}', { what, reason: result.split('\n')[0].replace(/^Error: /, '') }))
         return result
       } catch (err) {
-        const result = `Fehler: ${err instanceof Error ? err.message : String(err)}`
+        const result = `Error: ${err instanceof Error ? err.message : String(err)}`
         failedCalls.set(signature(name, p), result)
-        log.push(`${name} ${p.path ?? ''}: fehlgeschlagen – ${result.slice(8).split('\n')[0]}`)
+        log.push(t('{what}: failed – {reason}', { what: `${name} ${p.path ?? ''}`.trim(), reason: result.slice(7).split('\n')[0] }))
         return result
       }
     },
-    /** Zusammenfassung aus dem, was tatsächlich passiert ist – falls das Modell keine liefert */
+    /** Summary of what actually happened – in case the model doesn't provide one */
     summary(): string {
-      if (log.length === 0) return 'Es wurde nichts geändert und kein Befehl ausgeführt.'
-      return `Das wurde tatsächlich gemacht:\n${log.map((l) => `- ${l}`).join('\n')}`
+      if (log.length === 0) return t('Nothing was changed and no command was run.')
+      return `${t('This is what was actually done:')}\n${log.map((l) => `- ${l}`).join('\n')}`
     }
   }
 }
 
-// ---------- Werkzeug-Aufrufe im Text erkennen ----------
+// ---------- Detecting tool calls in text ----------
 //
-// Kleine Modelle schreiben Werkzeug-Aufrufe oft als normalen Text statt im Format ihres
-// Chat-Templates – und das selten als sauberes JSON. Typisch:
+// Small models often write tool calls as plain text instead of in the format of their
+// chat template – and rarely as clean JSON. Typical:
 //   ```json
 //   { "name": "write_file", "arguments": { "path": "a.js", "content": `
 //   function a() { … }
 //   ` } }
 //   ```
-// Deshalb ein toleranter Parser: erlaubt Backtick- und einfache Anführungszeichen, rohe
-// Zeilenumbrüche in Strings, Schlüssel ohne Anführungszeichen und Kommas am Ende.
+// Hence a lenient parser: allows backtick and single quotes, raw
+// line breaks in strings, unquoted keys and trailing commas.
 
 class Lenient {
   i = 0
@@ -434,7 +445,7 @@ class Lenient {
   private ws(): void {
     for (;;) {
       while (this.i < this.s.length && /\s/.test(this.s[this.i])) this.i++
-      // Kommentare überspringen
+      // Skip comments
       if (this.s.startsWith('//', this.i)) {
         while (this.i < this.s.length && this.s[this.i] !== '\n') this.i++
       } else return
@@ -448,7 +459,7 @@ class Lenient {
     if (c === '[') return this.array()
     if (c === '"' || c === "'" || c === '`') return this.string(c)
     const lit = /^(true|false|null|-?\d+(\.\d+)?([eE][+-]?\d+)?)/.exec(this.s.slice(this.i, this.i + 40))
-    if (!lit) throw new Error('Wert erwartet')
+    if (!lit) throw new Error('value expected')
     this.i += lit[0].length
     return lit[1] === 'true' ? true : lit[1] === 'false' ? false : lit[1] === 'null' ? null : Number(lit[0])
   }
@@ -467,16 +478,16 @@ class Lenient {
       if (c === '"' || c === "'" || c === '`') key = this.string(c)
       else {
         const id = /^[A-Za-z_$][\w$]*/.exec(this.s.slice(this.i, this.i + 100))
-        if (!id) throw new Error('Schlüssel erwartet')
+        if (!id) throw new Error('key expected')
         key = id[0]
         this.i += key.length
       }
       this.ws()
-      if (this.s[this.i++] !== ':') throw new Error(': erwartet')
+      if (this.s[this.i++] !== ':') throw new Error(': expected')
       out[key] = this.value()
       this.ws()
       if (this.s[this.i] === ',') this.i++
-      else if (this.s[this.i] !== '}') throw new Error(', oder } erwartet')
+      else if (this.s[this.i] !== '}') throw new Error(', or } expected')
     }
   }
 
@@ -492,17 +503,17 @@ class Lenient {
       out.push(this.value())
       this.ws()
       if (this.s[this.i] === ',') this.i++
-      else if (this.s[this.i] !== ']') throw new Error(', oder ] erwartet')
+      else if (this.s[this.i] !== ']') throw new Error(', or ] expected')
     }
   }
 
   private string(q: string): string {
-    this.i++ // öffnendes Zeichen
+    this.i++ // opening character
     let out = ''
     while (this.i < this.s.length) {
       const c = this.s[this.i++]
       if (c === q) {
-        // Bei Backticks steht der Code meist ab der nächsten Zeile – führenden Umbruch weglassen
+        // With backticks the code usually starts on the next line – drop the leading line break
         return q === '`' && out.startsWith('\n') ? out.slice(1) : out
       }
       if (c !== '\\') {
@@ -511,7 +522,7 @@ class Lenient {
       }
       const n = this.s[this.i++]
       if (q === '`') {
-        // In Backticks steht Code: Backslashes so lassen, wie sie sind
+        // Backticks contain code: leave backslashes as they are
         out += n === '`' ? '`' : '\\' + n
         continue
       }
@@ -521,35 +532,35 @@ class Lenient {
         this.i += 4
       } else out += map[n] ?? n
     }
-    throw new Error('String nicht beendet')
+    throw new Error('unterminated string')
   }
 }
 
 /**
- * Schreibt das Modell nach seinen Werkzeug-Aufrufen schon weiter – meist erfundene „Ergebnisse“?
- * Dann sollte die Generierung gestoppt und erst einmal wirklich ausgeführt werden.
+ * Does the model keep writing after its tool calls – usually made-up “results”?
+ * Then generation should stop and the calls should really be executed first.
  */
 export function continuesAfterCalls(text: string, available: Record<string, Tool>): boolean {
   const calls = parseToolCalls(text, available)
   if (!calls.length) return false
   const rest = text.slice(calls[calls.length - 1].end)
-  // Erlaubt: Code-Zaun, </tool_call>, Leerraum – und der Anfang eines weiteren Aufrufs
+  // Allowed: code fence, </tool_call>, whitespace – and the start of another call
   const cleaned = rest.replace(/```\w*|<\/?tool_call>|\s/g, '')
   if (!cleaned || cleaned.startsWith('{')) return false
   return cleaned.length > 3
 }
 
-/** Eine Werkzeug-Beschreibung (Schema) statt eines Aufrufs? */
+/** A tool description (schema) instead of a call? */
 function isDefinition(obj: Record<string, any>): boolean {
   if (obj.type === 'function' && typeof obj.function === 'object') return true
   const params = obj.parameters ?? obj.arguments
   return typeof obj.description === 'string' && !!params && typeof params === 'object' && ('properties' in params || params.type === 'object')
 }
 
-/** Alle Werkzeug-Aufrufe in einer Antwort, in der Reihenfolge, in der sie dort stehen. */
+/** All tool calls in an answer, in the order they appear. */
 export function parseToolCalls(text: string, available: Record<string, Tool>): { name: string; args: Params; end: number }[] {
   const calls: { name: string; args: Params; end: number }[] = []
-  // Manche Modelle kopieren die Werkzeug-Beschreibungen aus ihrer Anleitung in die Antwort – die sind keine Aufrufe
+  // Some models copy the tool descriptions from their instructions into the answer – those are not calls
   text = text.replace(/<tools>[\s\S]*?<\/tools>/g, (m) => ' '.repeat(m.length))
   let pos = 0
   while ((pos = text.indexOf('{', pos)) >= 0) {

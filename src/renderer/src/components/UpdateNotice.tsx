@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { UpdateState } from '../../../shared/types'
 import { Icon } from './Icon'
+import { t } from '../i18n'
 
 const DISMISSED_KEY = 'update.dismissed'
 
@@ -13,28 +14,28 @@ function readDismissed(): string | null {
 }
 
 /**
- * Hinweis unten rechts: neue Version verfügbar → installieren → neu starten.
- * Liefert zusätzlich einen Eintrag für die Statusleiste.
+ * Notice at the bottom right: new version available → install → restart.
+ * Also returns an entry for the status bar.
  */
 export function useUpdates(): {
   state: UpdateState
-  /** Hinweis-Karte (oder null) */
+  /** Notice card (or null) */
   notice: React.JSX.Element | null
-  /** Eintrag in der Statusleiste (oder null) */
+  /** Status bar entry (or null) */
   statusItem: React.JSX.Element | null
 } {
   const [state, setState] = useState<UpdateState>({ state: 'idle' })
   const [open, setOpen] = useState(true)
   const [log, setLog] = useState('')
   const [showLog, setShowLog] = useState(false)
-  // „Auf dem neuesten Stand“ nur nach einer Suche von Hand anzeigen
+  // Show “up to date” only after a manual check
   const manual = useRef(false)
 
   useEffect(() => {
     void window.api.update.state().then(setState)
     const a = window.api.update.onState((s) => {
       setState(s)
-      // Eine neuere Version als die zuletzt weggeklickte: wieder zeigen
+      // A newer version than the last dismissed one: show again
       if (s.state === 'available') setOpen(manual.current || s.latest !== readDismissed())
       if (s.state === 'installing' || s.state === 'ready' || s.state === 'error') setOpen(true)
     })
@@ -51,7 +52,7 @@ export function useUpdates(): {
     }
   }, [])
 
-  // Erfolgsmeldung nach Suche von Hand verschwindet von selbst
+  // Success message after a manual check disappears by itself
   useEffect(() => {
     if (state.state !== 'up-to-date' || !manual.current) return
     const t = setTimeout(() => {
@@ -66,7 +67,7 @@ export function useUpdates(): {
       try {
         localStorage.setItem(DISMISSED_KEY, state.latest)
       } catch {
-        /* nur Komfort */
+        /* convenience only */
       }
     }
     manual.current = false
@@ -81,17 +82,17 @@ export function useUpdates(): {
   let body: React.JSX.Element | null = null
   switch (state.state) {
     case 'checking':
-      if (manual.current) body = <p className="update-line">Suche nach Updates …</p>
+      if (manual.current) body = <p className="update-line">{t('Checking for updates …')}</p>
       break
     case 'up-to-date':
-      if (manual.current) body = <p className="update-line ok">✓ Lokal IDE ist auf dem neuesten Stand.</p>
+      if (manual.current) body = <p className="update-line ok">✓ {t('Lokal IDE is up to date.')}</p>
       break
     case 'available':
       body = (
         <>
-          <b className="update-title">Neue Version verfügbar</b>
+          <b className="update-title">{t('New version available')}</b>
           <p className="muted">
-            {state.behindBy} {state.behindBy === 1 ? 'neue Änderung' : 'neue Änderungen'}:
+            {state.behindBy === 1 ? t('1 new change:') : t('{count} new changes:', { count: state.behindBy })}
           </p>
           <ul className="update-commits">
             {state.commits.slice(0, 6).map((c) => (
@@ -99,14 +100,14 @@ export function useUpdates(): {
                 {c.message}
               </li>
             ))}
-            {state.commits.length > 6 && <li className="muted">… und {state.commits.length - 6} weitere</li>}
+            {state.commits.length > 6 && <li className="muted">{t('… and {count} more', { count: state.commits.length - 6 })}</li>}
           </ul>
           <div className="update-actions">
             <button className="btn" onClick={close}>
-              Später
+              {t('Later')}
             </button>
             <button className="btn primary" onClick={install}>
-              <Icon name="download" size={14} /> Installieren
+              <Icon name="download" size={14} /> {t('Install')}
             </button>
           </div>
         </>
@@ -115,13 +116,13 @@ export function useUpdates(): {
     case 'installing':
       body = (
         <>
-          <b className="update-title">Update wird installiert</b>
+          <b className="update-title">{t('Installing update')}</b>
           <p className="update-line">
             <span className="spinner" /> {state.step} …
           </p>
-          <p className="muted small">Du kannst weiterarbeiten. Zum Schluss ist nur ein Neustart nötig.</p>
+          <p className="muted small">{t('You can keep working. Only a restart is needed at the end.')}</p>
           <button className="link-btn" onClick={() => setShowLog((v) => !v)}>
-            {showLog ? 'Details ausblenden' : 'Details anzeigen'}
+            {showLog ? t('Hide details') : t('Show details')}
           </button>
         </>
       )
@@ -129,18 +130,18 @@ export function useUpdates(): {
     case 'ready':
       body = (
         <>
-          <b className="update-title">Update ist bereit</b>
+          <b className="update-title">{t('Update is ready')}</b>
           <p className="muted">
-            {state.dev ? 'Neuer Code ist geladen. Starte die App neu, um ihn zu benutzen.' : 'Die neue Version ist gebaut. Beim Neustart wird sie installiert.'}
+            {state.dev ? t('New code is loaded. Restart the app to use it.') : t('The new version is built. It will be installed on restart.')}
           </p>
           {state.installTo && <p className="muted small mono update-path">→ {state.installTo}</p>}
-          <p className="muted small">Ungespeicherte Dateien vorher speichern – laufende Terminals werden beendet.</p>
+          <p className="muted small">{t('Save unsaved files first – running terminals will be closed.')}</p>
           <div className="update-actions">
             <button className="btn" onClick={() => setOpen(false)}>
-              Später
+              {t('Later')}
             </button>
             <button className="btn primary" onClick={() => void window.api.update.restart()}>
-              <Icon name="refresh" size={14} /> Jetzt neu starten
+              <Icon name="refresh" size={14} /> {t('Restart now')}
             </button>
           </div>
         </>
@@ -149,17 +150,17 @@ export function useUpdates(): {
     case 'error':
       body = (
         <>
-          <b className="update-title err-text">Update fehlgeschlagen</b>
+          <b className="update-title err-text">{t('Update failed')}</b>
           <p className="update-error">{state.message}</p>
           <div className="update-actions">
             {log && (
               <button className="link-btn" onClick={() => setShowLog((v) => !v)}>
-                {showLog ? 'Details ausblenden' : 'Details'}
+                {showLog ? t('Hide details') : t('Details')}
               </button>
             )}
             <span className="spacer" />
             <button className="btn" onClick={close}>
-              Schließen
+              {t('Close')}
             </button>
             <button
               className="btn primary"
@@ -168,7 +169,7 @@ export function useUpdates(): {
                 void window.api.update.check()
               }}
             >
-              Erneut prüfen
+              {t('Check again')}
             </button>
           </div>
         </>
@@ -179,7 +180,7 @@ export function useUpdates(): {
   const notice =
     open && body ? (
       <div className="update-notice" role="status">
-        <button className="icon-btn update-close" title="Schließen" onClick={close}>
+        <button className="icon-btn update-close" title={t('Close')} onClick={close}>
           <Icon name="close" size={14} />
         </button>
         {body}
@@ -189,9 +190,9 @@ export function useUpdates(): {
 
   let statusItem: React.JSX.Element | null = null
   if (state.state === 'available' || state.state === 'installing' || state.state === 'ready') {
-    const label = state.state === 'available' ? 'Update verfügbar' : state.state === 'installing' ? 'Update wird installiert …' : 'Neustart für Update'
+    const label = state.state === 'available' ? t('Update available') : state.state === 'installing' ? t('Installing update …') : t('Restart for update')
     statusItem = (
-      <button className="status-item update" onClick={() => setOpen(true)} title="Update anzeigen">
+      <button className="status-item update" onClick={() => setOpen(true)} title={t('Show update')}>
         <Icon name="arrow-up" size={13} /> {label}
       </button>
     )

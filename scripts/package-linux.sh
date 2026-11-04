@@ -1,14 +1,14 @@
 #!/bin/sh
-# Baut Lokal IDE für Linux (x64 oder arm64, z. B. NVIDIA Jetson) als AppImage und .tar.gz in dist/.
-# Muss auf Linux laufen: `npm install` lädt dort die passenden llama.cpp-Binärdateien
-# (CPU, Vulkan und – bei NVIDIA – CUDA) als optionale Pakete von node-llama-cpp.
+# Builds Lokal IDE for Linux (x64 or arm64, e.g. NVIDIA Jetson) as AppImage and .tar.gz in dist/.
+# Must run on Linux: `npm install` downloads the matching llama.cpp binaries there
+# (CPU, Vulkan and – with NVIDIA – CUDA) as optional packages of node-llama-cpp.
 set -e
 
-# Der Monaco-Editor ist groß – beim Bündeln braucht Node mehr Speicher als die Vorgabe
+# The Monaco editor is big – bundling needs more memory than Node's default
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 
 node scripts/licenses.mjs
-# Jetson / ARM64 mit NVIDIA-GPU: llama.cpp mit CUDA bauen (macht sonst nichts)
+# Jetson / ARM64 with NVIDIA GPU: build llama.cpp with CUDA (does nothing otherwise)
 sh scripts/build-llama-cuda.sh
 electron-vite build
 case "$(uname -m)" in
@@ -17,4 +17,4 @@ case "$(uname -m)" in
 esac
 electron-builder --linux AppImage tar.gz $ARCH
 
-echo "Fertig: dist/*.AppImage und dist/*.tar.gz"
+echo "Done: dist/*.AppImage and dist/*.tar.gz"

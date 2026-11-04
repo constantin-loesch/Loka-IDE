@@ -24,6 +24,8 @@ import * as ports from './ports'
 import * as devcontainer from './devcontainer'
 import * as tasks from './tasks'
 import * as updater from './updater'
+import * as i18n from './i18n'
+import { t } from './i18n'
 
 files.registerScheme()
 
@@ -37,18 +39,18 @@ function createWindow(): void {
     minHeight: 600,
     title: 'Lokal IDE',
     backgroundColor: '#1e1f22',
-    // Auf dem Mac eigene Titelleiste mit den Ampel-Knöpfen, unter Linux/Windows der normale Fensterrahmen
+    // Own title bar with the traffic lights on the Mac, the normal window frame on Linux/Windows
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : { autoHideMenuBar: false }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       sandbox: true,
-      // Für den eingebauten PDF-Viewer
+      // For the built-in PDF viewer
       plugins: true
     }
   })
 
-  // Externe Links im Standard-Browser öffnen statt in der App
+  // Open external links in the default browser instead of the app
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
@@ -72,7 +74,7 @@ ipcMain.handle('system:info', (): SystemInfo => ({
 ipcMain.handle('system:hardware', () => llm.getHardware())
 ipcMain.handle('system:revealModels', () => shell.openPath(models.modelsDir()))
 
-// ---------- Dateisystem ----------
+// ---------- File system ----------
 
 ipcMain.handle('fs:openFolder', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
@@ -98,7 +100,7 @@ ipcMain.handle('fs:openExternal', async (_e, path: string) => {
 ipcMain.handle('fs:createFile', (_e, path: string) => files.createFile(path))
 ipcMain.handle('fs:createDir', (_e, path: string) => files.createDir(path))
 ipcMain.handle('fs:rename', (_e, from: string, to: string) => files.rename(from, to))
-// In den Papierkorb statt endgültig löschen
+// Move to the trash instead of deleting permanently
 ipcMain.handle('fs:trash', (_e, path: string) => shell.trashItem(path))
 ipcMain.handle('fs:reveal', (_e, path: string) => shell.showItemInFolder(path))
 ipcMain.handle('fs:watch', (_e, dirs: string[]) => files.watchDirs(dirs, (dir) => send('fs:changed', dir)))
@@ -116,10 +118,10 @@ ipcMain.handle('ports:forward', (_e, port: number) => ports.forward(port, true))
 ipcMain.handle('ports:unforward', (_e, port: number) => ports.unforward(port))
 ipcMain.handle('ports:setProject', (_e, dir: string | null) => ports.setProject(dir))
 
-// ---------- Devcontainer & Build ----------
+// ---------- Dev container & build ----------
 ipcMain.handle('devcontainer:status', async (_e, root: string) => {
   const s = await devcontainer.status(root)
-  // Weiterleitungen passend zum Container-Zustand halten
+  // Keep port forwards in sync with the container state
   void ports.setProject(root)
   return s
 })
@@ -170,16 +172,16 @@ ipcMain.handle('github:disconnect', () => git.disconnect())
 ipcMain.handle('github:storage', () => git.credentialStorage())
 ipcMain.handle('github:publish', (_e, dir: string, name: string, isPrivate: boolean) => git.publish(dir, name, isPrivate))
 ipcMain.handle('shell:openUrl', (_e, url: string) => {
-  // Nur Web-Links öffnen – http nur für weitergeleitete Ports auf diesem Rechner
+  // Only open web links – http only for forwarded ports on this machine
   if (/^https:\/\//.test(url) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url)) return shell.openExternal(url)
 })
 ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text))
 
-// ---------- Modelle ----------
+// ---------- Models ----------
 ipcMain.handle('models:catalog', () => models.getCatalog())
 ipcMain.handle('models:installed', () => models.listInstalled())
 ipcMain.handle('models:download', (_e, id: string) => {
-  // Nicht awaiten: Fortschritt kommt über Events
+  // Don't await: progress arrives via events
   void models.downloadModel(id, (p) => send('models:progress', p))
 })
 ipcMain.handle('models:cancelDownload', (_e, id: string) => models.cancelDownload(id))
@@ -191,7 +193,7 @@ ipcMain.handle('models:remove', async (_e, path: string) => {
 })
 ipcMain.handle('models:import', async () => {
   const r = await dialog.showOpenDialog({
-    title: 'GGUF-Modell auswählen',
+    title: t('Choose GGUF model'),
     properties: ['openFile'],
     filters: [{ name: 'GGUF-Modelle', extensions: ['gguf'] }]
   })
@@ -200,8 +202,8 @@ ipcMain.handle('models:import', async () => {
   return true
 })
 
-// ---------- Sitzung (offener Ordner und Tabs) ----------
-// Als Datei statt localStorage: wird sofort geschrieben und übersteht auch einen Absturz
+// ---------- Session (open folder and tabs) ----------
+// A file instead of localStorage: written immediately and survives a crash
 const sessionFile = (): string => join(app.getPath('userData'), 'session.json')
 ipcMain.handle('session:get', () => {
   try {
@@ -214,10 +216,26 @@ ipcMain.handle('session:set', (_e, data: unknown) => {
   writeFileSync(sessionFile(), JSON.stringify(data, null, 2))
 })
 
-// ---------- Modell-Einstellungen ----------
+// ---------- Model settings ----------
 ipcMain.handle('settings:get', () => settings.getSettings())
 ipcMain.handle('settings:defaults', () => settings.DEFAULTS)
-ipcMain.handle('settings:update', (_e, patch: Partial<ModelSettings>) => settings.updateSettings(patch))
+ipcMain.handle('settings:update', async (_e, patch: Partial<ModelSettings>) => {
+  const before = settings.getSettings().language
+  const next = await settings.updateSettings(patch)
+  // Language changed: rebuild menu and reload the window in the new language
+  if (patch.language && patch.language !== before) {
+    i18n.resetLang()
+    buildMenu()
+    // The reloaded window doesn't know the old terminals anymore – end them
+    terminal.killAll()
+    setTimeout(() => win?.webContents.reload(), 50)
+  }
+  return next
+})
+// The preload script asks synchronously so the UI starts in the right language
+ipcMain.on('i18n:lang', (e) => {
+  e.returnValue = i18n.currentLang()
+})
 
 // ---------- Engine ----------
 ipcMain.handle('engine:status', () => llm.getStatus())
@@ -249,19 +267,19 @@ ipcMain.handle('chat:reset', () => llm.resetChat())
 
 llm.onStatus((s) => send('engine:status', s))
 
-// ---------- Menü ----------
-// Eigenes Menü, damit Cmd+W den aktiven Tab schließt statt des ganzen Fensters
+// ---------- Menu ----------
+// Own menu so that Cmd+W closes the active tab instead of the whole window
 function buildMenu(): void {
   const mac = process.platform === 'darwin'
   const template: Electron.MenuItemConstructorOptions[] = [
-    // Das App-Menü (Über, Beenden …) gibt es nur auf dem Mac; unter Linux steht „Beenden“ im Datei-Menü
+    // The app menu (About, Quit …) only exists on the Mac; on Linux “Quit” is in the File menu
     ...(mac ? [{ role: 'appMenu' as const }] : []),
     {
-      label: 'Datei',
+      label: t('File'),
       submenu: [
-        { label: 'Tab schließen', accelerator: 'CmdOrCtrl+W', click: () => send('menu:closeTab', null) },
-        { label: 'Fenster schließen', accelerator: 'CmdOrCtrl+Shift+W', role: 'close' },
-        ...(mac ? [] : [{ type: 'separator' as const }, { label: 'Beenden', accelerator: 'Ctrl+Q', role: 'quit' as const }])
+        { label: t('Close Tab'), accelerator: 'CmdOrCtrl+W', click: () => send('menu:closeTab', null) },
+        { label: t('Close Window'), accelerator: 'CmdOrCtrl+Shift+W', role: 'close' },
+        ...(mac ? [] : [{ type: 'separator' as const }, { label: t('Quit'), accelerator: 'Ctrl+Q', role: 'quit' as const }])
       ]
     },
     { role: 'editMenu' },
@@ -269,33 +287,33 @@ function buildMenu(): void {
     {
       label: 'Terminal',
       submenu: [
-        { label: 'Neues Terminal', accelerator: 'Ctrl+Shift+`', click: () => send('menu:newTerminal', null) },
-        { label: 'Terminal ein-/ausblenden', accelerator: 'Ctrl+`', click: () => send('menu:toggleTerminal', null) }
+        { label: t('New Terminal'), accelerator: 'Ctrl+Shift+`', click: () => send('menu:newTerminal', null) },
+        { label: t('Toggle Terminal'), accelerator: 'Ctrl+`', click: () => send('menu:toggleTerminal', null) }
       ]
     },
     {
-      label: 'Fenster',
+      label: t('Window'),
       role: 'window',
       submenu: mac ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] : [{ role: 'minimize' }, { role: 'togglefullscreen' }]
     },
     {
-      label: 'Hilfe',
+      label: t('Help'),
       role: 'help',
       submenu: [
-        { label: 'Nach Updates suchen …', click: () => send('menu:checkUpdates', null) },
+        { label: t('Check for Updates …'), click: () => send('menu:checkUpdates', null) },
         { type: 'separator' },
         {
-          label: 'Open-Source-Lizenzen',
+          label: t('Open Source Licenses'),
           click: () => {
-            // Im fertigen App-Bundle liegt die Datei in Resources, beim Entwickeln im Projektordner
+            // In the finished app bundle the file is in Resources, during development in the project folder
             const file = app.isPackaged
               ? join(process.resourcesPath, 'THIRD_PARTY_LICENSES.txt')
               : join(app.getAppPath(), 'THIRD_PARTY_LICENSES.txt')
             void shell.openPath(file)
           }
         },
-        { label: 'Quellcode von llama.cpp', click: () => void shell.openExternal('https://github.com/ggml-org/llama.cpp') },
-        { label: 'Quellcode von node-llama-cpp', click: () => void shell.openExternal('https://github.com/withcatai/node-llama-cpp') }
+        { label: t('Source code of llama.cpp'), click: () => void shell.openExternal('https://github.com/ggml-org/llama.cpp') },
+        { label: t('Source code of node-llama-cpp'), click: () => void shell.openExternal('https://github.com/withcatai/node-llama-cpp') }
       ]
     }
   ]
@@ -318,15 +336,15 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (e) => {
-  // Mitten im Update-Build beenden würde den Build abbrechen
+  // Quitting in the middle of the update build would abort the build
   if (updater.isInstalling()) {
     const choice = dialog.showMessageBoxSync({
       type: 'warning',
-      buttons: ['Weiter warten', 'Trotzdem beenden'],
+      buttons: [t('Keep waiting'), t('Quit anyway')],
       defaultId: 0,
       cancelId: 0,
-      message: 'Das Update wird gerade gebaut.',
-      detail: 'Beim Beenden wird der Build abgebrochen. Danach musst du das Update erneut starten.'
+      message: t('The update is being built.'),
+      detail: t('Quitting aborts the build. You will have to start the update again afterwards.')
     })
     if (choice === 0) {
       e.preventDefault()

@@ -65,7 +65,7 @@ h2 {
   align-items: center;
 }
 
-/* ---------- Grundlayout ---------- */
+/* ---------- Base layout ---------- */
 .app {
   display: flex;
   flex-direction: column;
@@ -358,7 +358,7 @@ h2 {
   margin-bottom: 8px;
 }
 
-/* ---------- Modell-Manager ---------- */
+/* ---------- Model manager ---------- */
 .models-page {
   max-width: 1000px;
   margin: 0 auto;
@@ -647,7 +647,7 @@ section h2 {
   background: var(--err);
 }
 
-/* ---------- Statusleiste ---------- */
+/* ---------- Status bar ---------- */
 .statusbar {
   height: 24px;
   flex-shrink: 0;
@@ -691,7 +691,7 @@ section h2 {
   background: var(--err);
 }
 
-/* ---------- Datei-Vorschau ---------- */
+/* ---------- File preview ---------- */
 .preview {
   position: absolute;
   inset: 0;
@@ -704,7 +704,7 @@ section h2 {
   overflow: auto;
 }
 .preview-image {
-  /* Schachbrett, damit transparente Bilder erkennbar sind */
+  /* Checkerboard so transparent images are visible */
   background: repeating-conic-gradient(#2a2b2f 0% 25%, #232427 0% 50%) 50% / 20px 20px;
 }
 .preview img,
@@ -749,7 +749,7 @@ section h2 {
   gap: 8px;
 }
 
-/* ---------- Git-Panel ---------- */
+/* ---------- Git panel ---------- */
 .git-panel {
   flex: 1;
   min-height: 0;
@@ -943,7 +943,7 @@ section h2 {
   flex-wrap: wrap;
 }
 
-/* ---------- Agent & Modell-Einstellungen ---------- */
+/* ---------- Agent & model settings ---------- */
 .header-actions {
   display: flex;
   gap: 2px;
@@ -1061,7 +1061,7 @@ section h2 {
   align-self: flex-start;
 }
 
-/* ---------- Coding-Agent ---------- */
+/* ---------- Coding agent ---------- */
 .mode-select {
   margin-left: auto;
   padding: 2px 6px;
@@ -1167,7 +1167,7 @@ section h2 {
   gap: 8px;
 }
 
-/* ---------- Modell-Lizenz ---------- */
+/* ---------- Model license ---------- */
 .license {
   font-size: 11px;
   color: var(--muted);
@@ -1176,7 +1176,7 @@ section h2 {
   color: var(--warn);
 }
 
-/* ---------- Modell-Katalog ---------- */
+/* ---------- Model catalog ---------- */
 .catalog-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1255,7 +1255,7 @@ section h2 {
   white-space: nowrap;
 }
 
-/* ---------- Explorer: Anlegen, Umbenennen, Kontextmenü ---------- */
+/* ---------- Explorer: create, rename, context menu ---------- */
 .header-actions {
   display: flex;
   align-items: center;
@@ -1348,7 +1348,7 @@ section h2 {
   border-top: 1px solid var(--border);
 }
 
-/* ---------- Unterer Bereich: Terminal, Ports, Ausgabe ---------- */
+/* ---------- Bottom panel: terminal, ports, output ---------- */
 .bottom-wrap {
   position: relative;
   flex-shrink: 0;
@@ -1866,7 +1866,7 @@ body.resizing .xterm {
   user-select: text;
 }
 
-/* ---------- Statusleiste ---------- */
+/* ---------- Status bar items ---------- */
 .status-item {
   display: inline-flex;
   align-items: center;
@@ -1887,14 +1887,14 @@ body.resizing .xterm {
 .status-item.starting {
   color: var(--warn);
 }
-/* xterm füllt nicht immer die ganze Höhe – Restfläche in Hintergrundfarbe statt schwarz */
+/* xterm doesn't always fill the whole height – paint the rest in the background color instead of black */
 .terminal-box .xterm,
 .terminal-box .xterm-viewport,
 .terminal-box .xterm-scrollable-element {
   background-color: var(--bg) !important;
 }
 
-/* ---------- Update-Hinweis ---------- */
+/* ---------- Update notice ---------- */
 .update-notice {
   position: fixed;
   right: 16px;

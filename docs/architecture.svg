@@ -10,39 +10,39 @@
   </defs>
 
   <rect width="960" height="560" rx="16" fill="#1e1f22"/>
-  <text x="32" y="44" font-size="22" font-weight="700" fill="#dfe1e5">So ist Lokal IDE aufgebaut</text>
-  <text x="32" y="68" font-size="13" fill="#8c8f96">Alles läuft auf deinem Rechner – nur Modelle und GitHub-Pushes gehen (auf Wunsch) ins Internet.</text>
+  <text x="32" y="44" font-size="22" font-weight="700" fill="#dfe1e5">How Lokal IDE is built</text>
+  <text x="32" y="68" font-size="13" fill="#8c8f96">Everything runs on your machine – only model downloads and GitHub pushes go online (when you want).</text>
 
-  <!-- Oberfläche -->
+  <!-- UI -->
   <rect x="32" y="92" width="270" height="436" rx="12" fill="#232427" stroke="#393b40"/>
   <rect x="32" y="92" width="270" height="6" rx="3" fill="url(#kopf)"/>
-  <text x="52" y="126" font-size="15" font-weight="700" fill="#dfe1e5">Oberfläche</text>
-  <text x="52" y="146" font-size="12" fill="#8c8f96">React · Monaco Editor (wie VS Code)</text>
+  <text x="52" y="126" font-size="15" font-weight="700" fill="#dfe1e5">User interface</text>
+  <text x="52" y="146" font-size="12" fill="#8c8f96">React · Monaco editor (like VS Code)</text>
   <g font-size="13" fill="#dfe1e5">
-    <rect x="52" y="164" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="189">📝  Editor &amp; Datei-Vorschau</text>
-    <rect x="52" y="212" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="237">📁  Explorer &amp; Tabs</text>
-    <rect x="52" y="260" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="285">🌿  Git-Panel</text>
-    <rect x="52" y="308" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="333">💬  KI-Chat &amp; Coding-Agent</text>
-    <rect x="52" y="356" width="230" height="40" rx="8" fill="#2b2d30" stroke="#4f8cff"/><text x="68" y="381">✅  Freigabe-Karten mit Diff</text>
-    <rect x="52" y="404" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="429">🧠  Modell-Katalog</text>
-    <rect x="52" y="452" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="477">⚙️  Modell-Einstellungen</text>
+    <rect x="52" y="164" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="189">📝  Editor &amp; file preview</text>
+    <rect x="52" y="212" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="237">📁  Explorer, terminal &amp; ports</text>
+    <rect x="52" y="260" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="285">🌿  Git panel &amp; dev containers</text>
+    <rect x="52" y="308" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="333">💬  AI chat &amp; coding agent</text>
+    <rect x="52" y="356" width="230" height="40" rx="8" fill="#2b2d30" stroke="#4f8cff"/><text x="68" y="381">✅  Approval cards with diff</text>
+    <rect x="52" y="404" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="429">🧠  Model catalog</text>
+    <rect x="52" y="452" width="230" height="40" rx="8" fill="#2b2d30"/><text x="68" y="477">⚙️  Model settings</text>
   </g>
 
   <!-- IPC -->
   <rect x="330" y="92" width="64" height="436" rx="12" fill="#232427" stroke="#393b40" stroke-dasharray="4 4"/>
-  <text x="362" y="310" font-size="13" font-weight="600" fill="#8c8f96" text-anchor="middle" transform="rotate(-90 362 310)">sichere Brücke (IPC)</text>
+  <text x="362" y="310" font-size="13" font-weight="600" fill="#8c8f96" text-anchor="middle" transform="rotate(-90 362 310)">secure bridge (IPC)</text>
   <line x1="302" y1="310" x2="328" y2="310" stroke="#8c8f96" stroke-width="2" marker-end="url(#pfeil)" marker-start="url(#pfeil)"/>
 
-  <!-- Hauptprozess -->
+  <!-- Main process -->
   <rect x="422" y="92" width="506" height="436" rx="12" fill="#232427" stroke="#393b40"/>
   <rect x="422" y="92" width="506" height="6" rx="3" fill="url(#kopf)"/>
-  <text x="442" y="126" font-size="15" font-weight="700" fill="#dfe1e5">Hauptprozess</text>
+  <text x="442" y="126" font-size="15" font-weight="700" fill="#dfe1e5">Main process</text>
   <text x="442" y="146" font-size="12" fill="#8c8f96">Electron · Node.js</text>
   <line x1="394" y1="310" x2="420" y2="310" stroke="#8c8f96" stroke-width="2" marker-end="url(#pfeil)" marker-start="url(#pfeil)"/>
 
   <!-- Engine -->
   <rect x="442" y="164" width="220" height="168" rx="10" fill="#2b2d30"/>
-  <text x="458" y="188" font-size="14" font-weight="700" fill="#dfe1e5">KI-Engine</text>
+  <text x="458" y="188" font-size="14" font-weight="700" fill="#dfe1e5">AI engine</text>
   <text x="458" y="206" font-size="12" fill="#8c8f96">node-llama-cpp → llama.cpp</text>
   <g font-size="12" font-weight="600" text-anchor="middle">
     <rect x="458" y="222" width="90" height="28" rx="6" fill="#1e1f22" stroke="#4fbf7a"/><text x="503" y="241" fill="#4fbf7a">Metal</text>
@@ -50,43 +50,43 @@
     <rect x="458" y="258" width="90" height="28" rx="6" fill="#1e1f22" stroke="#4fbf7a"/><text x="503" y="277" fill="#4fbf7a">Vulkan</text>
     <rect x="556" y="258" width="90" height="28" rx="6" fill="#1e1f22" stroke="#8c8f96"/><text x="601" y="277" fill="#8c8f96">CPU</text>
   </g>
-  <text x="458" y="314" font-size="11" fill="#8c8f96">Mac · NVIDIA · AMD/Intel · überall</text>
+  <text x="458" y="314" font-size="11" fill="#8c8f96">Mac · NVIDIA · AMD/Intel · anywhere</text>
 
   <!-- Agent -->
   <rect x="686" y="164" width="222" height="168" rx="10" fill="#2b2d30" stroke="#4f8cff"/>
   <text x="702" y="188" font-size="14" font-weight="700" fill="#dfe1e5">Coding-Agent</text>
   <g font-size="12" fill="#dfe1e5">
-    <text x="702" y="212">🔍 suchen &amp; lesen</text>
-    <text x="702" y="234">✏️ ändern &amp; anlegen</text>
-    <text x="702" y="256">$  Terminal-Befehle</text>
-    <text x="702" y="278">🧪 Syntax- &amp; Testprüfung</text>
-    <text x="702" y="300">↶ Rückgängig pro Antwort</text>
+    <text x="702" y="212">🔍 search &amp; read</text>
+    <text x="702" y="234">✏️ edit &amp; create</text>
+    <text x="702" y="256">$  terminal commands</text>
+    <text x="702" y="278">🧪 syntax &amp; test checks</text>
+    <text x="702" y="300">↶ undo per answer</text>
   </g>
-  <text x="702" y="320" font-size="11" fill="#e0a84a">nur im Projektordner · mit Freigabe</text>
+  <text x="702" y="320" font-size="11" fill="#e0a84a">project folder only · with approval</text>
   <line x1="664" y1="248" x2="684" y2="248" stroke="#8c8f96" stroke-width="2" marker-end="url(#pfeil)" marker-start="url(#pfeil)"/>
 
-  <!-- Git & Modelle -->
+  <!-- Git & models -->
   <rect x="442" y="352" width="220" height="80" rx="10" fill="#2b2d30"/>
   <text x="458" y="378" font-size="14" font-weight="700" fill="#dfe1e5">Git &amp; GitHub</text>
-  <text x="458" y="398" font-size="12" fill="#8c8f96">git · GitHub-API</text>
-  <text x="458" y="416" font-size="12" fill="#8c8f96">Token im System-Schlüsselbund</text>
+  <text x="458" y="398" font-size="12" fill="#8c8f96">git · GitHub API</text>
+  <text x="458" y="416" font-size="12" fill="#8c8f96">token in the system keychain</text>
 
   <rect x="686" y="352" width="222" height="80" rx="10" fill="#2b2d30"/>
-  <text x="702" y="378" font-size="14" font-weight="700" fill="#dfe1e5">Modelle</text>
-  <text x="702" y="398" font-size="12" fill="#8c8f96">21 Modelle · 0,8B – 480B</text>
-  <text x="702" y="416" font-size="12" fill="#8c8f96">GGUF von Hugging Face</text>
+  <text x="702" y="378" font-size="14" font-weight="700" fill="#dfe1e5">Models</text>
+  <text x="702" y="398" font-size="12" fill="#8c8f96">21 models · 0.8B – 480B</text>
+  <text x="702" y="416" font-size="12" fill="#8c8f96">GGUF from Hugging Face</text>
 
-  <!-- Unten: Ziele -->
+  <!-- Bottom: targets -->
   <g font-size="12" text-anchor="middle">
     <rect x="442" y="456" width="140" height="52" rx="10" fill="#1e1f22" stroke="#393b40"/>
     <text x="512" y="478" fill="#dfe1e5" font-weight="600">🐙 GitHub</text>
     <text x="512" y="496" fill="#8c8f96">push / pull</text>
     <rect x="602" y="456" width="144" height="52" rx="10" fill="#1e1f22" stroke="#393b40"/>
-    <text x="674" y="478" fill="#dfe1e5" font-weight="600">📂 Projektordner</text>
-    <text x="674" y="496" fill="#8c8f96">deine Dateien</text>
+    <text x="674" y="478" fill="#dfe1e5" font-weight="600">📂 Project folder</text>
+    <text x="674" y="496" fill="#8c8f96">your files</text>
     <rect x="762" y="456" width="146" height="52" rx="10" fill="#1e1f22" stroke="#393b40"/>
     <text x="835" y="478" fill="#dfe1e5" font-weight="600">🤗 Hugging Face</text>
-    <text x="835" y="496" fill="#8c8f96">Modell-Download</text>
+    <text x="835" y="496" fill="#8c8f96">model download</text>
   </g>
   <path d="M720,332 L720,342 L674,342 L674,454" fill="none" stroke="#8c8f96" stroke-width="1.5" marker-end="url(#pfeil)"/>
   <line x1="512" y1="432" x2="512" y2="454" stroke="#8c8f96" stroke-width="1.5" marker-end="url(#pfeil)"/>

@@ -12,6 +12,7 @@ import ChatPanel, { type EditorContext } from './components/ChatPanel'
 import ModelManager from './components/ModelManager'
 import GitPanel from './components/GitPanel'
 import { Icon } from './components/Icon'
+import { locale, t } from './i18n'
 
 const MODELS_TAB = '__models__'
 
@@ -27,10 +28,10 @@ function fileTab(path: string, f: OpenedFile): Tab {
   }
 }
 
-/** Was beim nächsten Start wiederhergestellt wird. */
+/** What gets restored on the next start. */
 interface SavedSession {
   root: string | null
-  /** Pfade der offenen Datei-Tabs in ihrer Reihenfolge */
+  /** Paths of the open file tabs in their order */
   files: string[]
   active: string | null
   modelsTab: boolean
@@ -42,18 +43,18 @@ async function loadSession(): Promise<SavedSession | null> {
 }
 
 function saveSession(s: SavedSession): void {
-  // Speichern ist nur Komfort – Fehler ignorieren
+  // Saving is only a convenience – ignore errors
   window.api.session.set(s).catch(() => undefined)
 }
 
 export default function App(): React.JSX.Element {
   const [root, setRoot] = useState<string | null>(null)
-  const [tabs, setTabs] = useState<Tab[]>([{ id: MODELS_TAB, title: 'Modelle', kind: 'models' }])
+  const [tabs, setTabs] = useState<Tab[]>([{ id: MODELS_TAB, title: t('Models'), kind: 'models' }])
   const [activeId, setActiveId] = useState<string>(MODELS_TAB)
   const [sidebar, setSidebar] = useState<'explorer' | 'git' | 'container' | null>('explorer')
   const treeRef = useRef<FileTreeHandle>(null)
 
-  // Unterer Bereich: Terminal, Ports, Ausgabe
+  // Bottom panel: terminal, ports, output
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelTab, setPanelTab] = useState<PanelTab>('terminal')
   const [panelHeight, setPanelHeight] = useState(() => Number(localStorage.getItem('panelHeight')) || 260)
@@ -66,7 +67,7 @@ export default function App(): React.JSX.Element {
   const [chatOpen, setChatOpen] = useState(true)
   const [status, setStatus] = useState<EngineStatus>({ state: 'idle' })
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
-  // Erst speichern, wenn die letzte Sitzung wiederhergestellt ist – sonst würde sie überschrieben
+  // Only save once the last session is restored – otherwise it would be overwritten
   const [restored, setRestored] = useState(false)
 
   useEffect(() => {
@@ -74,13 +75,13 @@ export default function App(): React.JSX.Element {
     return window.api.engine.onStatus(setStatus)
   }, [])
 
-  // Ports: Liste kommt vom Hauptprozess, sobald sich etwas ändert
+  // Ports: the list comes from the main process whenever something changes
   useEffect(() => {
     void window.api.ports.list().then(setPorts)
     return window.api.ports.onChanged(setPorts)
   }, [])
 
-  // Devcontainer-Zustand des geöffneten Projekts
+  // Dev container state of the opened project
   const refreshDc = useCallback(() => {
     if (!root) {
       setDcStatus(null)
@@ -94,13 +95,13 @@ export default function App(): React.JSX.Element {
   useEffect(
     () =>
       window.api.devcontainer.onLog((l) => {
-        // Farbcodes der CLI entfernen, Länge begrenzen
+        // Remove the CLI's color codes, limit the length
         setOutput((prev) => (prev + l.text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')).slice(-200_000))
       }),
     []
   )
 
-  // Terminal beendet (z. B. mit „exit“): aus der Liste nehmen
+  // Terminal ended (e.g. with “exit”): take it off the list
   useEffect(
     () =>
       window.api.terminal.onExit(({ id }) => {
@@ -113,12 +114,12 @@ export default function App(): React.JSX.Element {
     if (activeTerminal && !terminals.some((t) => t.id === activeTerminal)) setActiveTerminal(terminals[terminals.length - 1]?.id ?? null)
   }, [terminals, activeTerminal])
 
-  // Fenstertitel (unter Linux im Fensterrahmen sichtbar)
+  // Window title (visible in the window frame on Linux)
   useEffect(() => {
     document.title = root ? `${root.split('/').pop()} – Lokal IDE` : 'Lokal IDE'
   }, [root])
 
-  // Beim Start: zuletzt geöffneten Ordner und Dateien wiederherstellen
+  // On start: restore the last opened folder and files
   useEffect(() => {
     void (async () => {
       const saved = await loadSession()
@@ -127,17 +128,17 @@ export default function App(): React.JSX.Element {
         return
       }
       if (saved.root) {
-        // Nur wiederherstellen, wenn es den Ordner noch gibt
+        // Only restore if the folder still exists
         const exists = await window.api.fs.readDir(saved.root).then(() => true, () => false)
         if (exists) setRoot(saved.root)
       }
       const reopened: Tab[] = []
       for (const path of saved.files) {
-        // Gelöschte oder verschobene Dateien still überspringen
+        // Silently skip deleted or moved files
         const opened = await window.api.fs.openFile(path).catch(() => null)
         if (opened) reopened.push(fileTab(path, opened))
       }
-      const next: Tab[] = [...(saved.modelsTab ? [{ id: MODELS_TAB, title: 'Modelle', kind: 'models' as const }] : []), ...reopened]
+      const next: Tab[] = [...(saved.modelsTab ? [{ id: MODELS_TAB, title: t('Models'), kind: 'models' as const }] : []), ...reopened]
       setTabs(next)
       const active = next.find((t) => t.id === saved.active) ?? next[next.length - 1]
       setActiveId(active?.id ?? '')
@@ -145,7 +146,7 @@ export default function App(): React.JSX.Element {
     })()
   }, [])
 
-  // Offene Tabs merken, sobald sich etwas ändert
+  // Remember open tabs whenever something changes
   useEffect(() => {
     if (!restored) return
     saveSession({
@@ -168,10 +169,10 @@ export default function App(): React.JSX.Element {
     if (!tabs.some((t) => t.id === path)) {
       try {
         const opened = await window.api.fs.openFile(path)
-        // Doppelklick kann zweimal öffnen – nur einen Tab anlegen
+        // A double click can open twice – only create one tab
         setTabs((prev) => (prev.some((t) => t.id === path) ? prev : [...prev, fileTab(path, opened)]))
       } catch (err) {
-        alert(`Datei konnte nicht geöffnet werden:\n${err}`)
+        alert(`${t('The file could not be opened:')}\n${err}`)
         return
       }
     }
@@ -182,7 +183,7 @@ export default function App(): React.JSX.Element {
     if (!root) return
     try {
       const info = await window.api.terminal.create({
-        // Im Container immer vom Projektordner aus – dort sucht die CLI die devcontainer.json
+        // In the container always from the project folder – that's where the CLI looks for devcontainer.json
         cwd: target === 'container' ? root : (opts.cwd ?? root),
         target,
         command: opts.command,
@@ -193,7 +194,7 @@ export default function App(): React.JSX.Element {
       setPanelTab('terminal')
       setPanelOpen(true)
     } catch (err) {
-      alert(`Terminal konnte nicht gestartet werden:\n${String(err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+      alert(`${t('The terminal could not be started:')}\n${String(err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
     }
   }
 
@@ -204,12 +205,12 @@ export default function App(): React.JSX.Element {
   }
 
   const togglePanel = (): void => {
-    // Beim ersten Öffnen gleich ein Terminal starten
+    // Start a terminal right away on first open
     if (!panelOpen && terminals.length === 0 && root && panelTab === 'terminal') void newTerminal('local')
     setPanelOpen(!panelOpen)
   }
 
-  /** Explorer hat umbenannt/verschoben: offene Tabs auf den neuen Pfad umstellen. */
+  /** The explorer renamed/moved something: switch open tabs to the new path. */
   const handleRenamed = (from: string, to: string): void => {
     const moved = (p: string): string | null => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null)
     setTabs((prev) =>
@@ -218,7 +219,7 @@ export default function App(): React.JSX.Element {
         const next = moved(t.path)
         if (!next) return t
         if (t.kind === 'file') {
-          // Ungespeicherten Inhalt aus dem alten Monaco-Modell mitnehmen
+          // Take unsaved content over from the old Monaco model
           const model = monacoEditor.getModel(modelUri(t.path))
           const content = t.dirty && model ? model.getValue() : t.content
           model?.dispose()
@@ -230,7 +231,7 @@ export default function App(): React.JSX.Element {
     setActiveId((id) => moved(id) ?? id)
   }
 
-  /** Explorer hat in den Papierkorb verschoben: zugehörige Tabs schließen (ungespeicherte bleiben offen). */
+  /** The explorer moved something to the trash: close its tabs (unsaved ones stay open). */
   const handleDeleted = (path: string): void => {
     const gone = (p: string): boolean => p === path || p.startsWith(path + '/')
     setTabs((prev) =>
@@ -265,17 +266,17 @@ export default function App(): React.JSX.Element {
 
   const openModels = (): void => {
     if (!tabs.some((t) => t.id === MODELS_TAB)) {
-      setTabs((prev) => [...prev, { id: MODELS_TAB, title: 'Modelle', kind: 'models' }])
+      setTabs((prev) => [...prev, { id: MODELS_TAB, title: t('Models'), kind: 'models' }])
     }
     setActiveId(MODELS_TAB)
   }
 
   const closeTab = (id: string): void => {
     const tab = tabs.find((t) => t.id === id)
-    if (tab?.kind === 'file' && tab.dirty && !confirm(`„${tab.title}“ hat ungespeicherte Änderungen. Trotzdem schließen?`)) {
+    if (tab?.kind === 'file' && tab.dirty && !confirm(t('“{name}” has unsaved changes. Close anyway?', { name: tab.title }))) {
       return
     }
-    // Monaco-Modell freigeben, sonst tauchen verworfene Änderungen beim erneuten Öffnen wieder auf
+    // Release the Monaco model, otherwise discarded changes reappear when reopening
     if (tab?.kind === 'file') monacoEditor.getModel(modelUri(tab.path))?.dispose()
     const idx = tabs.findIndex((t) => t.id === id)
     const next = tabs.filter((t) => t.id !== id)
@@ -283,7 +284,7 @@ export default function App(): React.JSX.Element {
     if (activeId === id) setActiveId(next[Math.max(0, idx - 1)]?.id ?? '')
   }
 
-  /** Öffnet eine Binär- oder Mediendatei im selben Tab als Text. */
+  /** Opens a binary or media file as text in the same tab. */
   const openAsText = async (id: string): Promise<void> => {
     const tab = tabs.find((t) => t.id === id)
     if (!tab || !('path' in tab)) return
@@ -291,18 +292,18 @@ export default function App(): React.JSX.Element {
       const opened = await window.api.fs.openFile(tab.path, true)
       setTabs((prev) => prev.map((t) => (t.id === id ? fileTab(tab.path, opened) : t)))
     } catch (err) {
-      alert(`Datei konnte nicht geöffnet werden:\n${err}`)
+      alert(`${t('The file could not be opened:')}\n${err}`)
     }
   }
 
-  // Das Modell kann im Agent-Modus Dateien öffnen und zu einer Zeile springen
+  // In agent mode the model can open files and jump to a line
   const openFileRef = useRef(openFile)
   openFileRef.current = openFile
   useEffect(
     () =>
       window.api.agent.onOpenFile(async ({ path, line }) => {
         await openFileRef.current(path)
-        // Warten, bis der Editor das Modell der Datei angezeigt hat
+        // Wait until the editor shows the file's model
         setTimeout(() => {
           const ed = editorRef.current
           if (!ed) return
@@ -313,7 +314,7 @@ export default function App(): React.JSX.Element {
     []
   )
 
-  // Der Agent hat eine Datei geändert: offenen Tab aktualisieren (mit Cmd+Z rückgängig zu machen)
+  // The agent changed a file: update the open tab (can be undone with Cmd+Z)
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   useEffect(
@@ -329,20 +330,20 @@ export default function App(): React.JSX.Element {
           model.pushEditOperations([], [{ range: model.getFullModelRange(), text: opened.content }], () => null)
           model.pushStackElement()
         }
-        // Inhalt entspricht wieder der Datei auf der Festplatte
+        // Content matches the file on disk again
         setTabs((prev) => prev.map((t) => (t.id === path && t.kind === 'file' ? { ...t, content: opened.content, dirty: false } : t)))
       }),
     []
   )
 
-  // Cmd+W aus dem App-Menü schließt den aktiven Tab
+  // Cmd+W from the app menu closes the active tab
   const closeActiveRef = useRef<() => void>(() => {})
   closeActiveRef.current = () => {
     if (tabs.some((t) => t.id === activeId)) closeTab(activeId)
   }
   useEffect(() => window.api.menu.onCloseTab(() => closeActiveRef.current()), [])
 
-  // Terminal-Menü: Ctrl+` blendet ein/aus, Ctrl+Shift+` öffnet ein neues Terminal
+  // Terminal menu: Ctrl+` toggles, Ctrl+Shift+` opens a new terminal
   const menuRef = useRef({ toggle: togglePanel, create: () => void newTerminal('local') })
   menuRef.current = { toggle: togglePanel, create: () => void newTerminal('local') }
   useEffect(() => {
@@ -363,7 +364,7 @@ export default function App(): React.JSX.Element {
 
   const activeTab = tabs.find((t) => t.id === activeId)
 
-  /** Liefert der Chat-Leiste den aktuellen Datei- und Auswahl-Kontext. */
+  /** Gives the chat panel the current file and selection context. */
   const getEditorContext = (): EditorContext | null => {
     const ed = editorRef.current
     if (!ed || activeTab?.kind !== 'file') return null
@@ -378,11 +379,11 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  /** Fügt Code aus dem Chat an der Cursor-Position ein (oder ersetzt die Auswahl). */
+  /** Inserts code from the chat at the cursor (or replaces the selection). */
   const insertIntoEditor = (code: string): void => {
     const ed = editorRef.current
     if (!ed || activeTab?.kind !== 'file') {
-      alert('Öffne zuerst eine Datei, um Code einzufügen.')
+      alert(t('Open a file first to insert code.'))
       return
     }
     const sel = ed.getSelection()
@@ -393,7 +394,7 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      {/* Eigene Titelleiste nur auf dem Mac – unter Linux zeigt der normale Fensterrahmen den Titel */}
+      {/* Own title bar only on the Mac – on Linux the normal window frame shows the title */}
       {window.api.platform === 'darwin' && (
         <div className="titlebar">
           <span className="titlebar-name">{root ? root.split('/').pop() : 'Lokal IDE'}</span>
@@ -411,25 +412,25 @@ export default function App(): React.JSX.Element {
           </button>
           <button
             className={sidebar === 'git' ? 'active' : ''}
-            title="Quellcodeverwaltung (Git)"
+            title={t('Source Control (Git)')}
             onClick={() => setSidebar((v) => (v === 'git' ? null : 'git'))}
           >
             <Icon name="git" />
           </button>
           <button
             className={sidebar === 'container' ? 'active' : ''}
-            title="Devcontainer & Build"
+            title={t('Dev Container & Build')}
             onClick={() => setSidebar((v) => (v === 'container' ? null : 'container'))}
           >
             <Icon name="container" />
           </button>
-          <button className={panelOpen ? 'active' : ''} title="Terminal (⌃`)" onClick={togglePanel}>
+          <button className={panelOpen ? 'active' : ''} title={t('Terminal (⌃`)')} onClick={togglePanel}>
             <Icon name="terminal" />
           </button>
-          <button className={activeTab?.kind === 'models' ? 'active' : ''} title="Modelle" onClick={openModels}>
+          <button className={activeTab?.kind === 'models' ? 'active' : ''} title={t('Models')} onClick={openModels}>
             <Icon name="chip" />
           </button>
-          <button className={chatOpen ? 'active' : ''} title="KI-Chat" onClick={() => setChatOpen((v) => !v)}>
+          <button className={chatOpen ? 'active' : ''} title={t('AI Chat')} onClick={() => setChatOpen((v) => !v)}>
             <Icon name="chat" />
           </button>
         </nav>
@@ -437,7 +438,7 @@ export default function App(): React.JSX.Element {
         {sidebar === 'git' && (
           <aside className="sidebar">
             <div className="panel-header">
-              <span>Quellcode</span>
+              <span>{t('Source Control')}</span>
             </div>
             <GitPanel root={root} onOpenFolder={openFolder} onOpenFile={openFile} />
           </aside>
@@ -446,7 +447,7 @@ export default function App(): React.JSX.Element {
         {sidebar === 'container' && (
           <aside className="sidebar">
             <div className="panel-header">
-              <span>Container &amp; Build</span>
+              <span>{t('Container & Build')}</span>
             </div>
             <ContainerPanel
               root={root}
@@ -471,21 +472,21 @@ export default function App(): React.JSX.Element {
               <div className="header-actions">
                 {root && (
                   <>
-                    <button className="icon-btn" title="Neue Datei …" onClick={() => treeRef.current?.newFile()}>
+                    <button className="icon-btn" title={t('New File …')} onClick={() => treeRef.current?.newFile()}>
                       <Icon name="new-file" size={16} />
                     </button>
-                    <button className="icon-btn" title="Neuer Ordner …" onClick={() => treeRef.current?.newFolder()}>
+                    <button className="icon-btn" title={t('New Folder …')} onClick={() => treeRef.current?.newFolder()}>
                       <Icon name="new-folder" size={16} />
                     </button>
-                    <button className="icon-btn" title="Explorer aktualisieren" onClick={() => treeRef.current?.refresh()}>
+                    <button className="icon-btn" title={t('Refresh Explorer')} onClick={() => treeRef.current?.refresh()}>
                       <Icon name="refresh" size={15} />
                     </button>
-                    <button className="icon-btn" title="Alle zuklappen" onClick={() => treeRef.current?.collapseAll()}>
+                    <button className="icon-btn" title={t('Collapse All')} onClick={() => treeRef.current?.collapseAll()}>
                       <Icon name="collapse" size={15} />
                     </button>
                   </>
                 )}
-                <button className="icon-btn" title="Ordner öffnen" onClick={openFolder}>
+                <button className="icon-btn" title={t('Open Folder')} onClick={openFolder}>
                   <Icon name="folder-open" size={16} />
                 </button>
               </div>
@@ -503,9 +504,9 @@ export default function App(): React.JSX.Element {
               />
             ) : (
               <div className="empty-hint">
-                <p>Kein Ordner geöffnet.</p>
+                <p>{t('No folder open.')}</p>
                 <button className="btn primary" onClick={openFolder}>
-                  Ordner öffnen
+                  {t('Open Folder')}
                 </button>
               </div>
             )}
@@ -523,7 +524,7 @@ export default function App(): React.JSX.Element {
             editorRef={editorRef}
             renderModels={() => <ModelManager status={status} />}
           />
-          {/* Bleibt eingehängt, damit Terminals beim Ausblenden weiterlaufen */}
+          {/* Stays mounted so terminals keep running while hidden */}
           <div className="bottom-wrap" style={{ height: panelHeight, display: panelOpen ? 'flex' : 'none' }}>
             <div className="panel-resizer" onMouseDown={startResize} />
             <BottomPanel
@@ -560,9 +561,9 @@ export default function App(): React.JSX.Element {
       <footer className="statusbar">
         <StatusText status={status} onClick={openModels} />
         {dcStatus?.configPath && (
-          <button className={`status-item ${dcStatus.state}`} onClick={() => setSidebar('container')} title="Devcontainer">
+          <button className={`status-item ${dcStatus.state}`} onClick={() => setSidebar('container')} title={t('Dev container')}>
             <Icon name="container" size={13} />
-            {dcStatus.state === 'running' ? 'Container läuft' : dcStatus.state === 'starting' ? 'Container startet …' : 'Container aus'}
+            {dcStatus.state === 'running' ? t('Container running') : dcStatus.state === 'starting' ? t('Container starting …') : t('Container off')}
           </button>
         )}
         <button
@@ -571,13 +572,13 @@ export default function App(): React.JSX.Element {
             setPanelTab('ports')
             setPanelOpen(true)
           }}
-          title="Weitergeleitete und erkannte Ports"
+          title={t('Forwarded and detected ports')}
         >
-          <Icon name="plug" size={13} /> {ports.length} {ports.length === 1 ? 'Port' : 'Ports'}
+          <Icon name="plug" size={13} /> {ports.length === 1 ? t('1 port') : t('{count} ports', { count: ports.length })}
         </button>
         <span className="spacer" />
         {updates.statusItem}
-        {activeTab?.kind === 'file' && <span>{activeTab.dirty ? '● Ungespeichert' : 'Gespeichert'}</span>}
+        {activeTab?.kind === 'file' && <span>{activeTab.dirty ? '● ' + t('Unsaved') : t('Saved')}</span>}
       </footer>
       {updates.notice}
     </div>
@@ -589,23 +590,23 @@ function StatusText({ status, onClick }: { status: EngineStatus; onClick: () => 
   let cls = ''
   switch (status.state) {
     case 'idle':
-      text = 'Kein Modell geladen'
+      text = t('No model loaded')
       break
     case 'loading':
-      text = `Lade Modell … ${Math.round(status.progress * 100)} %`
+      text = t('Loading model … {percent} %', { percent: Math.round(status.progress * 100) })
       cls = 'busy'
       break
     case 'ready':
-      text = `${status.modelName} · ${status.gpu.toUpperCase()} · ${status.contextSize.toLocaleString('de')} Token`
+      text = `${status.modelName} · ${status.gpu.toUpperCase()} · ${t('{count} tokens', { count: status.contextSize.toLocaleString(locale) })}`
       cls = 'ok'
       break
     case 'error':
-      text = `Fehler: ${status.message}`
+      text = t('Error: {message}', { message: status.message })
       cls = 'err'
       break
   }
   return (
-    <button className={`status-model ${cls}`} onClick={onClick} title="Modelle verwalten">
+    <button className={`status-model ${cls}`} onClick={onClick} title={t('Manage models')}>
       <span className="dot" /> {text}
     </button>
   )

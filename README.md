@@ -1,155 +1,175 @@
 <p align="center">
-  <img src="build/icon.png" width="112" alt="Lokal IDE Icon">
+  <img src="build/icon.png" width="112" alt="Lokal IDE icon">
 </p>
 
 <h1 align="center">Lokal IDE</h1>
 
 <p align="center">
-  <b>Code-Editor mit eingebauter KI, die komplett auf deinem Rechner läuft.</b><br>
-  Chat, Coding-Agent, Terminal, Devcontainer, Git und GitHub – ohne Cloud, ohne API-Schlüssel, ohne Abo.
+  <b>A code editor with built-in AI that runs entirely on your machine.</b><br>
+  Chat, coding agent, terminal, dev containers, Git and GitHub – no cloud, no API keys, no subscription.
 </p>
-
-<p align="center">
-  <b>Installieren mit einem Befehl</b> (macOS &amp; Linux):
-</p>
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/scripts/install.sh | sh
-```
 
 <p align="center">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%C2%B7%20Metal-000?logo=apple">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-CUDA%20%C2%B7%20Vulkan%20%C2%B7%20CPU-FCC624?logo=linux&logoColor=black">
+  <img alt="NVIDIA Jetson" src="https://img.shields.io/badge/NVIDIA%20Jetson-CUDA-76B900?logo=nvidia&logoColor=white">
   <img alt="llama.cpp" src="https://img.shields.io/badge/Engine-llama.cpp-4f8cff">
-  <img alt="100 % lokal" src="https://img.shields.io/badge/Daten-100%25%20lokal-4fbf7a">
+  <img alt="100 % local" src="https://img.shields.io/badge/Data-100%25%20local-4fbf7a">
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/agent-freigabe.png" alt="Der Coding-Agent schlägt eine Korrektur vor und wartet mit Diff auf die Freigabe" width="900">
-</p>
-
----
-
-## Was kann Lokal IDE?
-
-| | |
-| --- | --- |
-| 🤖 **Coding-Agent** | Gib eine Aufgabe („Behebe den Fehler und führe die Tests aus“) – der Agent sucht im Projekt, liest Code, ändert Dateien und startet Terminal-Befehle. Jede Änderung siehst du vorher als Diff und gibst sie frei. |
-| 🧠 **Erkennt selbst, was du willst** | Kein Umschalten zwischen Modi: Allgemeine Fragen beantwortet er direkt, Projektfragen durch Nachlesen, Aufträge als Agent. |
-| 💻 **Lokale KI** | Modelle laufen über [llama.cpp](https://github.com/ggml-org/llama.cpp) direkt in der App – mit Metal (Mac), CUDA (NVIDIA), Vulkan (AMD/Intel) oder auf der CPU. |
-| 📚 **21 Modelle, 0,8B – 480B** | Qwen 3.5/3.6/3.8, Gemma 4, gpt-oss, Qwen3 Coder … jeweils von 2-Bit bis zum unquantisierten Original – mit Tempo-Schätzung für deinen Rechner. |
-| 📝 **Editor wie VS Code** | Monaco-Editor mit Syntax-Highlighting für alle gängigen Sprachen, Vorschau für Bilder, PDFs, Audio und Video. |
-| 📁 **Explorer** | Dateien und Ordner anlegen (auch `ordner/unterordner/datei.ts` in einem Schritt), umbenennen (F2), in den Papierkorb verschieben, Pfad kopieren, im Terminal öffnen. Änderungen von außen erscheinen sofort. |
-| 🖥️ **Integriertes Terminal** | Echte Shell (zsh/bash) mit Farben, mehreren Terminals nebeneinander – lokal oder im Devcontainer. <kbd>⌃\`</kbd> blendet ein/aus. |
-| 🔌 **Ports** | Startet ein Programm im Terminal einen Server, taucht sein Port automatisch auf. Ports aus dem Devcontainer werden auf `localhost` weitergeleitet – ein Klick öffnet sie im Browser. |
-| 📦 **Devcontainer** | `devcontainer.json` per Dialog anlegen (Sprache, Build-Tools, Ports), Container bauen, starten, stoppen und neu bauen – über die offizielle Dev-Container-CLI, kompatibel mit VS Code. |
-| 🔨 **Build-Aufgaben** | Erkennt npm-/pnpm-/yarn-Skripte, Make, Cargo, Go, Maven, Gradle, CMake, Python, .NET, Docker – ein Klick führt sie im Terminal aus, lokal oder im Container. |
-| 🌿 **Git & GitHub** | Änderungen ansehen, Dateien auswählen, committen, pushen, pullen – und neue Repositories direkt auf GitHub veröffentlichen. |
-| ⚙️ **Alles einstellbar** | Temperatur, Top-P/K, Kontextgröße, GPU-Backend, System-Prompt, Freigabe-Regeln für den Agent … |
-| ⬆️ **Updates in der App** | Gibt es auf GitHub eine neue Version, erscheint ein Hinweis mit den Änderungen. Ein Klick lädt und baut sie im Hintergrund, ein Neustart installiert sie. |
-| 💾 **Merkt sich alles** | Beim nächsten Start sind Ordner und offene Dateien wieder da. |
-
-## Der Coding-Agent
-
-<p align="center">
-  <img src="docs/agent-ablauf.svg" alt="Ablauf des Coding-Agents" width="900">
-</p>
-
-Kleine lokale Modelle sind nicht so zuverlässig wie große Cloud-Modelle. Deshalb ist der Agent mit vielen Sicherungen gebaut:
-
-- **Du gibst frei:** Dateiänderungen und Befehle erscheinen als Karte mit Diff. Erlauben, ablehnen (optional mit Hinweis ans Modell) oder „für diesen Chat immer erlauben“.
-- **Leitplanken:** Der Agent arbeitet nur im geöffneten Projektordner. Gefährliche Befehle (`sudo`, `rm`, `git push`, Pfade außerhalb des Projekts …) werden **immer** nachgefragt.
-- **Ehrlichkeit:** Erfindet das Modell Ergebnisse („Test erfolgreich!“), bevor etwas ausgeführt wurde, wird die Antwort live gestoppt und der echte Schritt ausgeführt. Am Ende steht nur, was wirklich passiert ist.
-- **Selbstkontrolle:** Nach jedem Schreiben wird die Syntax geprüft (JavaScript, JSON, Python, Shell). Vor dem Abschluss prüft die App, ob Tests grün sind und alle verlangten Dateien existieren – sonst macht der Agent weiter.
-- **Rückgängig:** Unter jeder Antwort lassen sich alle Änderungen mit einem Klick zurücknehmen.
-- **Robust bei kleinen Modellen:** Werkzeug-Aufrufe werden auch erkannt, wenn das Modell kein sauberes JSON schreibt; Änderungen gehen auch über Zeilennummern statt exakten Text.
-
-<p align="center">
-  <img src="docs/screenshots/agent-ergebnis.png" alt="Ergebnis: Fehler behoben, Funktion ergänzt, Tests bestanden" width="900">
-  <br><sub>Echter Lauf mit Qwen2.5 Coder 3B auf einem Mac mit M3 und 8 GB RAM: Fehler gefunden, Funktion ergänzt, <code>npm test</code> grün.</sub>
-</p>
-
-## Terminal, Ports & Devcontainer
-
-<p align="center">
-  <img src="docs/screenshots/devcontainer.png" alt="Dialog zum Anlegen eines Devcontainers mit Build-Tools, Ports und Vorschau der devcontainer.json" width="900">
-</p>
-
-**Terminal** – das Terminal-Symbol links oder <kbd>⌃\`</kbd> öffnet unten ein Terminal im Projektordner (<kbd>⌃⇧\`</kbd> ein weiteres). Es ist eine echte Shell über [node-pty](https://github.com/microsoft/node-pty) und [xterm.js](https://github.com/xtermjs/xterm.js): Farben, Vollbild-Programme wie `vim` oder `htop`, <kbd>⌘C</kbd> kopiert die Auswahl, <kbd>⌘K</kbd> leert. Terminals laufen weiter, wenn der Bereich ausgeblendet ist.
-
-**Ports** – die App beobachtet, welche Programme aus ihren Terminals einen TCP-Port öffnen (`lsof` bzw. `ss`), und zeigt sie im Tab *Ports* mit Link zum Öffnen. Im Devcontainer werden lauschende Ports automatisch erkannt (`/proc/net/tcp`) und auf `localhost` weitergeleitet – ist der Port belegt, wird der nächste freie genommen. Eigene Weiterleitungen trägst du unten im Tab ein.
-
-**Devcontainer** – im Bereich *Container & Build* (Würfel-Symbol):
-
-1. **Anlegen:** Der Dialog schlägt passend zum Projekt ein Image vor (Node, Python, Go, Rust, Java, C/C++, .NET …), dazu Build-Tools als [Features](https://containers.dev/features) (Node, Python, Go, Rust, Java + Maven + Gradle, gcc/make/CMake, Docker-in-Docker, GitHub CLI), Ports und einen Befehl nach dem Erstellen (z. B. `npm install`). Die `devcontainer.json` siehst du live, bevor sie geschrieben wird.
-2. **Starten / Neu bauen / Stoppen / Löschen:** läuft über die offizielle [Dev-Container-CLI](https://github.com/devcontainers/cli) – dieselbe Technik wie in VS Code, also funktionieren auch vorhandene Konfigurationen mit Dockerfile oder Docker Compose. Den Fortschritt zeigt der Tab *Ausgabe*.
-3. **Arbeiten:** „Terminal im Container“ öffnet eine Shell im Container (als `remoteUser`, im Arbeitsordner). Build-Aufgaben lassen sich wahlweise *lokal* oder *im Container* ausführen.
-
-Voraussetzung ist Docker: [Docker Desktop](https://www.docker.com/products/docker-desktop/), OrbStack, Colima oder die Docker Engine unter Linux.
-
-## Modelle
-
-<p align="center">
-  <img src="docs/screenshots/modelle.png" alt="Modell-Katalog mit Varianten, Tempo-Schätzung und Lizenz" width="900">
-</p>
-
-Jedes Modell gibt es in mehreren Varianten. Weniger Bits = kleiner und schneller, aber etwas ungenauer – **4-Bit ist meist der beste Kompromiss**. Modelle mit **MoE** (z. B. „35B A3B“) rechnen pro Wort nur einen kleinen Teil ihrer Parameter und sind deshalb fast so schnell wie kleine Modelle.
-
-| Dein Rechner | Empfehlung |
-| --- | --- |
-| 8 GB RAM (z. B. MacBook Air) | Qwen3.5 4B oder Gemma 4 E4B in 4-Bit |
-| 16–32 GB RAM | Qwen3.5 9B, gpt-oss 20B, Gemma 4 26B A4B |
-| 32–64 GB RAM / NVIDIA mit 24 GB | Qwen3.6 35B A3B, Qwen3 Coder 30B A3B, Qwen3.8 27B |
-| 64–256 GB (Mac Studio, Workstation) | Qwen3 Coder Next 80B, gpt-oss 120B, Qwen3.8 Flash-Next |
-| 256 GB+ | Qwen3.5 397B, Qwen3 Coder 480B |
-
-Die App zeigt für jede Variante, ob sie auf **deinen** Rechner passt und wie viele Wörter pro Sekunde ungefähr zu erwarten sind – bei NVIDIA-Karten inklusive Hinweis, wenn ein Teil auf die CPU ausweichen muss.
-
-## Git & GitHub
-
-<p align="center">
-  <img src="docs/screenshots/git.png" alt="Git-Panel mit Änderungen und Commit" width="900">
-</p>
-
-Repository anlegen, Dateien auswählen, committen (⌘↩), pushen und pullen. Für GitHub reicht ein Zugangs-Token – er wird im Schlüsselbund des Systems gespeichert (macOS-Schlüsselbund bzw. libsecret unter Linux).
-
-## So ist die App aufgebaut
-
-<p align="center">
-  <img src="docs/architektur.svg" alt="Architektur von Lokal IDE" width="900">
-</p>
-
-| Bereich | Datei | Aufgabe |
-| --- | --- | --- |
-| Hauptprozess | [`src/main/index.ts`](src/main/index.ts) | Fenster, Menü, Dateizugriff, IPC |
-| KI-Engine | [`src/main/llm.ts`](src/main/llm.ts) | Modell laden, Backend-Wahl (Metal/CUDA/Vulkan/CPU), Chat, Agent-Schleife |
-| Agent | [`src/main/agent.ts`](src/main/agent.ts), [`agentTools.ts`](src/main/agentTools.ts) | Werkzeuge, Freigaben, Leitplanken, Syntaxprüfung, Rückgängig |
-| Hardware | [`src/main/hardware.ts`](src/main/hardware.ts) | Passt das Modell? Wie schnell läuft es? |
-| Modelle | [`src/main/models.ts`](src/main/models.ts), [`catalog.ts`](src/main/catalog.ts) | Katalog, mehrteilige Downloads, Installation |
-| Git | [`src/main/git.ts`](src/main/git.ts) | Git-Befehle, GitHub-API |
-| Terminal | [`src/main/terminal.ts`](src/main/terminal.ts) | Pseudo-Terminals (node-pty), lokal oder per `devcontainer exec` |
-| Ports | [`src/main/ports.ts`](src/main/ports.ts) | Ports erkennen, Weiterleitung aus dem Container nach `localhost` |
-| Devcontainer | [`src/main/devcontainer.ts`](src/main/devcontainer.ts) | Vorlagen, Docker-Status, Start/Neubau/Stopp über die Dev-Container-CLI |
-| Build-Aufgaben | [`src/main/tasks.ts`](src/main/tasks.ts) | Erkennt Skripte und Build-Systeme im Projekt |
-| Updates | [`src/main/updater.ts`](src/main/updater.ts) | Vergleich mit GitHub, Pull & Neubau, Austausch beim Neustart |
-| Oberfläche | [`src/renderer/src/`](src/renderer/src/) | React + Monaco + xterm.js: Editor, Explorer, Terminal, Ports, Container, Chat, Freigabe-Karten, Katalog, Git |
-
-## Installieren & starten
-
-### Mit einem Befehl
+<p align="center"><b>Install with one command</b> (macOS &amp; Linux):</p>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/scripts/install.sh | sh
 ```
 
-Das Skript ([`scripts/install.sh`](scripts/install.sh)) prüft die Voraussetzungen, lädt den Quellcode nach `~/.lokal-ide`, installiert die Abhängigkeiten und baut die App:
+<p align="center">
+  <img src="docs/screenshots/agent-approval.png" alt="The coding agent proposes a fix and waits for approval with a diff" width="900">
+</p>
+
+---
+
+## What can Lokal IDE do?
+
+| | |
+| --- | --- |
+| 🤖 **Coding agent** | Give it a task (“Fix the bug and run the tests”) – the agent searches the project, reads code, edits files and runs terminal commands. You see every change as a diff first and approve it. |
+| 🧠 **Figures out what you want** | No mode switching: general questions get a direct answer, project questions are looked up, tasks are handled as an agent. |
+| 💻 **Local AI** | Models run inside the app via [llama.cpp](https://github.com/ggml-org/llama.cpp) – with Metal (Mac), CUDA (NVIDIA, including Jetson), Vulkan (AMD/Intel) or on the CPU. |
+| 📚 **21 models, 0.8B – 480B** | Qwen 3.5/3.6/3.8, Gemma 4, gpt-oss, Qwen3 Coder … each from 2-bit up to the unquantized original – with a speed estimate for your machine. |
+| 📝 **Editor like VS Code** | Monaco editor with syntax highlighting for all common languages, previews for images, PDFs, audio and video. |
+| 📁 **Explorer** | Create files and folders (even `folder/subfolder/file.ts` in one go), rename (F2), move to trash, copy paths, open in terminal. Changes from outside show up immediately. |
+| 🖥️ **Integrated terminal** | A real shell (zsh/bash) with colors and multiple terminals – local or inside the dev container. <kbd>⌃\`</kbd> toggles it. |
+| 🔌 **Ports** | When a program in the terminal starts a server, its port appears automatically. Ports from the dev container are forwarded to `localhost` – one click opens them in the browser. |
+| 📦 **Dev containers** | Create a `devcontainer.json` in a dialog (language, build tools, ports), then build, start, stop and rebuild the container – via the official Dev Container CLI, compatible with VS Code. |
+| 🔨 **Build tasks** | Detects npm/pnpm/yarn scripts, Make, Cargo, Go, Maven, Gradle, CMake, Python, .NET and Docker – one click runs them in the terminal, locally or in the container. |
+| 🌿 **Git & GitHub** | View changes, select files, commit, push, pull – and publish new repositories directly on GitHub. |
+| ⬆️ **Updates inside the app** | When a new version is on GitHub, a notice lists the changes. One click downloads and builds it in the background, a restart installs it. |
+| 🌍 **English & German** | The app follows your system language; you can also pick it in the settings. |
+| ⚙️ **Everything adjustable** | Temperature, top-p/k, context size, GPU backend, system prompt, approval rules for the agent … |
+| 💾 **Remembers everything** | Folder and open files are back on the next start. |
+
+## The coding agent
+
+<p align="center">
+  <img src="docs/agent-flow.svg" alt="How the coding agent works" width="900">
+</p>
+
+Small local models are not as reliable as large cloud models. That's why the agent comes with many safeguards:
+
+- **You approve:** file changes and commands appear as a card with a diff. Allow, decline (optionally with a note to the model) or “always allow in this chat”.
+- **Guardrails:** the agent only works inside the opened project folder. Dangerous commands (`sudo`, `rm`, `git push`, paths outside the project …) are **always** asked for.
+- **Honesty:** if the model makes up results (“Tests passed!”) before anything was run, the answer is stopped live and the real step is executed. In the end only what actually happened is reported.
+- **Self-checks:** after every write the syntax is checked (JavaScript, JSON, Python, shell). Before finishing, the app checks whether tests are green and all requested files exist – otherwise the agent continues.
+- **Undo:** all changes of an answer can be reverted with one click.
+- **Robust with small models:** tool calls are recognized even when the model doesn't write clean JSON; edits also work via line numbers instead of exact text.
+
+<p align="center">
+  <img src="docs/screenshots/agent-result.png" alt="Result: bug fixed, function added, tests passed" width="900">
+  <br><sub>A real run with Qwen2.5 Coder 3B on a Mac with M3 and 8 GB RAM: bug fixed, function added, <code>npm test</code> green.</sub>
+</p>
+
+## Terminal, ports & dev containers
+
+<p align="center">
+  <img src="docs/screenshots/terminal.png" alt="Integrated terminal with a running server; its port is detected automatically" width="900">
+</p>
+
+**Terminal** – the terminal icon on the left or <kbd>⌃\`</kbd> opens a terminal in the project folder at the bottom (<kbd>⌃⇧\`</kbd> opens another one). It's a real shell via [node-pty](https://github.com/microsoft/node-pty) and [xterm.js](https://github.com/xtermjs/xterm.js): colors, full-screen programs like `vim` or `htop`, <kbd>⌘C</kbd> copies the selection, <kbd>⌘K</kbd> clears. Terminals keep running while the panel is hidden.
+
+**Ports** – the app watches which programs started from its terminals open a TCP port (`lsof` or `ss`) and lists them in the *Ports* tab with a link to open them. Inside the dev container, listening ports are detected automatically (`/proc/net/tcp`) and forwarded to `localhost` – if the port is taken, the next free one is used. Add your own forwards at the bottom of the tab.
+
+<p align="center">
+  <img src="docs/screenshots/devcontainer.png" alt="Dialog for creating a dev container with build tools, ports and a preview of devcontainer.json" width="900">
+</p>
+
+**Dev containers** – in the *Container & Build* view (cube icon):
+
+1. **Create:** the dialog suggests an image that fits the project (Node, Python, Go, Rust, Java, C/C++, .NET …), plus build tools as [features](https://containers.dev/features) (Node, Python, Go, Rust, Java + Maven + Gradle, gcc/make/CMake, Docker-in-Docker, GitHub CLI), ports and a command to run after creation (e.g. `npm install`). You see the `devcontainer.json` live before it is written.
+2. **Start / rebuild / stop / delete:** runs on the official [Dev Container CLI](https://github.com/devcontainers/cli) – the same technology VS Code uses, so existing configurations with a Dockerfile or Docker Compose work too. The *Output* tab shows the progress.
+3. **Work:** “Terminal in container” opens a shell inside the container (as `remoteUser`, in the workspace folder). Build tasks can run either *locally* or *in the container*.
+
+Requires Docker: [Docker Desktop](https://www.docker.com/products/docker-desktop/), OrbStack, Colima or Docker Engine on Linux.
+
+## Models
+
+<p align="center">
+  <img src="docs/screenshots/models.png" alt="Model catalog with variants, speed estimate and license" width="900">
+</p>
+
+Every model comes in several variants. Fewer bits = smaller and faster, but slightly less accurate – **4-bit is usually the best compromise**. Models with **MoE** (e.g. “35B A3B”) compute only a small part of their parameters per word and are therefore almost as fast as small models.
+
+| Your machine | Recommendation |
+| --- | --- |
+| 8 GB RAM (e.g. MacBook Air) | Qwen3.5 4B or Gemma 4 E4B in 4-bit |
+| 16–32 GB RAM | Qwen3.5 9B, gpt-oss 20B, Gemma 4 26B A4B |
+| 32–64 GB RAM / NVIDIA with 24 GB / Jetson AGX Orin 64 GB | Qwen3.6 35B A3B, Qwen3 Coder 30B A3B, Qwen3.8 27B |
+| 64–256 GB (Mac Studio, workstation) | Qwen3 Coder Next 80B, gpt-oss 120B, Qwen3.8 Flash-Next |
+| 256 GB+ | Qwen3.5 397B, Qwen3 Coder 480B |
+
+The app shows for every variant whether it fits **your** machine and roughly how many words per second to expect – for NVIDIA cards including a hint when part of it has to fall back to the CPU.
+
+## Git & GitHub
+
+<p align="center">
+  <img src="docs/screenshots/git.png" alt="Git panel with changes and commit" width="900">
+</p>
+
+Create a repository, select files, commit (⌘↩), push and pull. For GitHub an access token is enough – it is stored in the system keychain (macOS keychain or libsecret on Linux).
+
+## Updates
+
+At build time the app remembers its Git commit and the source folder (`~/.lokal-ide` when installed with the script). Shortly after start and then every four hours it asks GitHub whether there are newer commits on `main` (**Help → Check for Updates …** checks right away).
+
+If there are, a notice with the list of changes appears at the bottom right:
+
+1. **Install** – in the background: `git pull` in the source folder, `npm install`, rebuild the app. You can keep working; “Details” shows the output.
+2. **Restart now** – the app quits, the new version replaces the old one (macOS: in the same place, re-signed, the Dock icon stays linked; Linux: the AppImage) and starts again.
+
+“Later” hides the notice until the next new version; the status bar keeps showing “Update available”. If the source folder has uncommitted changes, the update stops instead of overwriting them. For developers: with `npm run dev` an update only fetches the new code; `LOKAL_IDE_BUILD_COMMIT=<sha> npm run build` pretends an older state to test the notice.
+
+## Languages
+
+The app is available in **English** and **German**. By default it follows the system language; in the model settings (sliders icon in the chat) you can choose *Automatic*, *English* or *Deutsch* – the window reloads in the new language. English is the source language in the code; German translations live in [`src/shared/i18n.de.ts`](src/shared/i18n.de.ts).
+
+## How the app is built
+
+<p align="center">
+  <img src="docs/architecture.svg" alt="Architecture of Lokal IDE" width="900">
+</p>
+
+| Area | File | Purpose |
+| --- | --- | --- |
+| Main process | [`src/main/index.ts`](src/main/index.ts) | Window, menu, file access, IPC |
+| AI engine | [`src/main/llm.ts`](src/main/llm.ts) | Load models, backend choice (Metal/CUDA/Vulkan/CPU), chat, agent loop |
+| Agent | [`src/main/agent.ts`](src/main/agent.ts), [`agentTools.ts`](src/main/agentTools.ts) | Tools, approvals, guardrails, syntax checks, undo |
+| Hardware | [`src/main/hardware.ts`](src/main/hardware.ts) | Does the model fit? How fast does it run? (incl. Jetson & unified memory) |
+| Models | [`src/main/models.ts`](src/main/models.ts), [`catalog.ts`](src/main/catalog.ts) | Catalog, multi-part downloads, installation |
+| Git | [`src/main/git.ts`](src/main/git.ts) | Git commands, GitHub API |
+| Terminal | [`src/main/terminal.ts`](src/main/terminal.ts) | Pseudo terminals (node-pty), local or via `devcontainer exec` |
+| Ports | [`src/main/ports.ts`](src/main/ports.ts) | Detect ports, forward from the container to `localhost` |
+| Dev containers | [`src/main/devcontainer.ts`](src/main/devcontainer.ts) | Templates, Docker status, start/rebuild/stop via the Dev Container CLI |
+| Build tasks | [`src/main/tasks.ts`](src/main/tasks.ts) | Detects scripts and build systems in the project |
+| Updates | [`src/main/updater.ts`](src/main/updater.ts) | Compare with GitHub, pull & rebuild, swap on restart |
+| Translations | [`src/shared/i18n.ts`](src/shared/i18n.ts), [`i18n.de.ts`](src/shared/i18n.de.ts) | English source texts, German dictionary |
+| UI | [`src/renderer/src/`](src/renderer/src/) | React + Monaco + xterm.js: editor, explorer, terminal, ports, containers, chat, approval cards, catalog, Git |
+
+## Install & run
+
+### With one command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/constantin-loesch/Lokal-IDE/main/scripts/install.sh | sh
+```
+
+The script ([`scripts/install.sh`](scripts/install.sh)) checks the requirements, downloads the source to `~/.lokal-ide`, installs the dependencies and builds the app:
 
 - **macOS:** `~/Applications/Lokal IDE.app`
-- **Linux:** `~/.local/bin/lokal-ide` (AppImage) plus Eintrag im App-Menü
+- **Linux:** `~/.local/bin/lokal-ide` (AppImage) plus an entry in the app menu
 
-Danach aktualisiert sich die App selbst (siehe [Updates](#updates)); das Skript erneut auszuführen geht aber auch. Voraussetzungen: `git`, unter Linux zusätzlich `build-essential` und `python3` (für das Terminal). Für Devcontainer außerdem Docker. **Node.js 22+** wird zum Bauen gebraucht – fehlt es oder ist es älter, lädt das Skript automatisch ein eigenes Node.js nach `~/.local/share/lokal-ide/node` (ohne `sudo`, das System-Node bleibt unverändert). Das klappt auf macOS und Linux mit x64 oder ARM64.
+After that the app updates itself (see [Updates](#updates)); running the script again works too. Requirements: `git`, and on Linux additionally `build-essential` and `python3` (for the terminal). For dev containers also Docker. **Node.js 22+** is needed for building – if it is missing or older, the script downloads its own Node.js to `~/.local/share/lokal-ide/node` (no `sudo`, the system Node stays untouched). This works on macOS and Linux with x64 or ARM64.
 
-### Zum Entwickeln
+### For development
 
 ```bash
 git clone https://github.com/constantin-loesch/Lokal-IDE.git
@@ -158,90 +178,79 @@ npm install
 npm run dev
 ```
 
-Beim ersten Start unter „Modelle“ ein Modell herunterladen (z. B. **Qwen3.5 4B**), einen Ordner öffnen und im Chat loslegen.
+On first start, download a model under “Models” (e.g. **Qwen3.5 4B**), open a folder and start chatting.
 
 ### Linux
 
 ```bash
-sudo apt install build-essential python3   # für das Terminal (node-pty wird gebaut)
-npm install          # lädt automatisch die llama.cpp-Bausteine für CPU, Vulkan und CUDA
+sudo apt install build-essential python3   # for the terminal (node-pty gets compiled)
+npm install          # downloads the llama.cpp binaries for CPU, Vulkan and CUDA automatically
 npm run dev
 ```
 
-- **NVIDIA (CUDA):** aktueller NVIDIA-Treiber und [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) 12.4+ (oder 13.1+).
-- **AMD / Intel (Vulkan):** Vulkan-Treiber der Distribution (z. B. `mesa-vulkan-drivers`).
-- Ohne passende GPU läuft alles auf der CPU. Das Backend lässt sich in den Modell-Einstellungen festlegen.
-- GitHub-Token landen im Schlüsselbund (libsecret); ist der nicht installiert, in `~/.git-credentials`.
+- **NVIDIA (CUDA):** current NVIDIA driver and [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) 12.4+ (or 13.1+).
+- **AMD / Intel (Vulkan):** your distribution's Vulkan driver (e.g. `mesa-vulkan-drivers`).
+- Without a suitable GPU everything runs on the CPU. The backend can be set in the model settings.
+- GitHub tokens go to the keyring (libsecret); if that isn't installed, to `~/.git-credentials`.
 
-**NVIDIA Jetson (Orin, Xavier, Thor) und DGX Spark:** Das Installationsskript erkennt das Gerät und baut llama.cpp einmalig **mit CUDA für genau diese GPU** (dauert 10–40 Minuten, [`scripts/build-llama-cuda.sh`](scripts/build-llama-cuda.sh)). Die App erkennt den **gemeinsamen Speicher** – auf einem AGX Orin mit 64 GB stehen also die vollen 64 GB für Modelle bereit, mit realistischer Tempo-Schätzung (204,8 GB/s Bandbreite). Flash Attention ist dort standardmäßig an.
+**NVIDIA Jetson (Orin, Xavier, Thor) and DGX Spark:** the install script detects the device and builds llama.cpp once **with CUDA for exactly this GPU** (takes 10–40 minutes, [`scripts/build-llama-cuda.sh`](scripts/build-llama-cuda.sh)). The app recognizes the **unified memory** – on an AGX Orin with 64 GB the full 64 GB are available for models, with a realistic speed estimate (204.8 GB/s bandwidth). Flash attention is on by default there.
 
-- Voraussetzung: CUDA-Toolkit aus JetPack (`sudo apt install nvidia-jetpack`), JetPack 5 oder 6. JetPack 4 (Ubuntu 18.04) ist für Node.js 22 zu alt.
-- Für volle Leistung: `sudo nvpmodel -m 0` (Leistungsmodus MAXN) und `sudo jetson_clocks`.
-- Der CUDA-Build wird bei Updates nur wiederholt, wenn sich die llama.cpp-Version ändert. Von Hand neu bauen: `LOKAL_IDE_CUDA_REBUILD=1 sh scripts/build-llama-cuda.sh` im Quellordner (`~/.lokal-ide`).
-- Klappt der CUDA-Build nicht, läuft die KI auf der CPU weiter – die Installation bricht deshalb nicht ab.
+- Requirement: the CUDA toolkit from JetPack (`sudo apt install nvidia-jetpack`), JetPack 5 or 6. JetPack 4 (Ubuntu 18.04) is too old for Node.js 22.
+- For full performance: `sudo nvpmodel -m 0` (power mode MAXN) and `sudo jetson_clocks`.
+- The CUDA build is only repeated on updates when the llama.cpp version changes. Rebuild by hand: `LOKAL_IDE_CUDA_REBUILD=1 sh scripts/build-llama-cuda.sh` in the source folder (`~/.lokal-ide`).
+- If the CUDA build fails, the AI keeps running on the CPU – the installation doesn't abort.
 
-> Die Linux-Unterstützung ist neu: Code und Build-Konfiguration sind vorbereitet, getestet ist bisher aber nur macOS. Rückmeldungen sind willkommen.
+> Linux support is new: code and build configuration are in place, but so far only macOS has been tested thoroughly. Feedback is welcome.
 
-## Updates
+## Building the app
 
-Die App merkt sich beim Bauen ihren Git-Stand und den Quellordner (bei der Installation per Skript `~/.lokal-ide`). Kurz nach dem Start und danach alle vier Stunden fragt sie GitHub, ob es auf `main` neuere Commits gibt (**Hilfe → Nach Updates suchen …** prüft sofort).
-
-Gibt es welche, erscheint unten rechts ein Hinweis mit der Liste der Änderungen:
-
-1. **Installieren** – im Hintergrund: `git pull` im Quellordner, `npm install`, App neu bauen. Du kannst dabei weiterarbeiten; „Details“ zeigt die Ausgabe.
-2. **Jetzt neu starten** – die App beendet sich, die neue Version ersetzt die alte (macOS: am selben Ort, neu signiert; Linux: das AppImage) und startet wieder.
-
-„Später“ blendet den Hinweis bis zur nächsten neuen Version aus; in der Statusleiste bleibt „Update verfügbar“ sichtbar. Hat der Quellordner nicht committete Änderungen, bricht das Update ab, statt sie zu überschreiben. Für Entwickler: `npm run dev` holt beim Update nur den neuen Code; mit `LOKAL_IDE_BUILD_COMMIT=<sha> npm run build` lässt sich ein älterer Stand vortäuschen, um den Hinweis zu testen.
-
-## Als App bauen
-
-| Plattform | Befehl | Ergebnis |
+| Platform | Command | Result |
 | --- | --- | --- |
-| macOS | `npm run app` | `~/Applications/Lokal IDE.app` (signiert) |
-| Linux | `npm run app:linux` (auf Linux ausführen) | `dist/Lokal-IDE-<version>-x64.AppImage` und `.tar.gz` |
+| macOS | `npm run app` | `~/Applications/Lokal IDE.app` (signed) |
+| Linux | `npm run app:linux` (run on Linux) | `dist/Lokal-IDE-<version>-<arch>.AppImage` and `.tar.gz` |
 
-Auf dem Mac wird bewusst außerhalb des Projektordners signiert: Liegt das Projekt auf einem iCloud-synchronisierten Schreibtisch, hängt macOS sofort wieder Datei-Attribute an und `codesign` bricht ab.
+On the Mac the app is deliberately signed outside the project folder: if the project lives on an iCloud-synced Desktop, macOS immediately re-attaches file attributes and `codesign` aborts.
 
-Modelle liegen unter `~/Library/Application Support/Lokal IDE/models` (macOS) bzw. `~/.config/Lokal IDE/models` (Linux).
+Models are stored in `~/Library/Application Support/Lokal IDE/models` (macOS) or `~/.config/Lokal IDE/models` (Linux).
 
-## Ideen für später
+## Ideas for later
 
-- Inline-Vervollständigung im Editor (Ghost-Text)
-- Dateien per Drag & Drop im Explorer verschieben
-- Projektweiter Kontext (Embeddings über den geöffneten Ordner)
-- OpenAI-kompatibler lokaler Server, damit auch andere Tools die Modelle nutzen können
+- Inline completion in the editor (ghost text)
+- Moving files via drag & drop in the explorer
+- Project-wide context (embeddings over the opened folder)
+- OpenAI-compatible local server so other tools can use the models too
 
-## Open Source & Lizenzen
+## Open source & licenses
 
-Lokal IDE baut auf diesen Open-Source-Projekten auf:
+Lokal IDE builds on these open source projects:
 
-| Projekt | Wofür | Lizenz |
+| Project | Used for | License |
 | --- | --- | --- |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Führt die Sprachmodelle lokal aus (Metal-GPU auf Apple Silicon) | MIT |
-| [node-llama-cpp](https://github.com/withcatai/node-llama-cpp) | Anbindung von llama.cpp an Node.js/Electron, Funktionsaufrufe | MIT |
-| [Electron](https://github.com/electron/electron) | Desktop-App (enthält Chromium und Node.js) | MIT |
-| [Monaco Editor](https://github.com/microsoft/monaco-editor) | Code-Editor (derselbe wie in VS Code) | MIT |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Runs the language models locally | MIT |
+| [node-llama-cpp](https://github.com/withcatai/node-llama-cpp) | Binds llama.cpp to Node.js/Electron, function calling | MIT |
+| [Electron](https://github.com/electron/electron) | Desktop app (contains Chromium and Node.js) | MIT |
+| [Monaco Editor](https://github.com/microsoft/monaco-editor) | Code editor (the same as in VS Code) | MIT |
 | [@monaco-editor/react](https://github.com/suren-atoyan/monaco-react) | Monaco in React | MIT |
-| [React](https://github.com/facebook/react) | Oberfläche | MIT |
-| [xterm.js](https://github.com/xtermjs/xterm.js) | Terminal-Darstellung | MIT |
-| [node-pty](https://github.com/microsoft/node-pty) | Echte Pseudo-Terminals | MIT |
-| [Dev Container CLI](https://github.com/devcontainers/cli) | Devcontainer bauen und starten | MIT |
+| [React](https://github.com/facebook/react) | User interface | MIT |
+| [xterm.js](https://github.com/xtermjs/xterm.js) | Terminal rendering | MIT |
+| [node-pty](https://github.com/microsoft/node-pty) | Real pseudo terminals | MIT |
+| [Dev Container CLI](https://github.com/devcontainers/cli) | Building and starting dev containers | MIT |
 | [Vite](https://github.com/vitejs/vite), [electron-vite](https://github.com/alex8088/electron-vite) | Build | MIT |
-| [electron-builder](https://github.com/electron-userland/electron-builder) | Mac-App packen | MIT |
-| [TypeScript](https://github.com/microsoft/TypeScript) | Sprache | Apache 2.0 |
+| [electron-builder](https://github.com/electron-userland/electron-builder) | Packaging the app | MIT |
+| [TypeScript](https://github.com/microsoft/TypeScript) | Language | Apache 2.0 |
 
-Die vollständigen Lizenztexte aller mitgelieferten Pakete (126 Stück, alle freizügig: MIT, ISC, Blue Oak, Apache 2.0, MPL 2.0 wahlweise) stehen in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). Die Datei wird bei `npm run app` neu erzeugt (`scripts/licenses.mjs`), mit der App ausgeliefert und ist dort über **Hilfe → Open-Source-Lizenzen** erreichbar.
+The full license texts of all bundled packages (126, all permissive: MIT, ISC, Blue Oak, Apache 2.0, MPL 2.0 as an option) are in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). The file is regenerated on `npm run app` (`scripts/licenses.mjs`), shipped with the app and available there under **Help → Open Source Licenses**.
 
-### Modelle
+### Models
 
-Die Modelle sind nicht Teil der App – sie werden erst auf Wunsch von Hugging Face geladen. Der Katalog ([src/main/catalog.ts](src/main/catalog.ts)) wird mit `node scripts/update-catalog.mjs` direkt aus Hugging Face erzeugt: 21 Modelle von 0,8B bis 480B Parametern, jeweils in mehreren Varianten (2-Bit bis unquantisiertes 16-Bit-Original). Die GGUF-Dateien stammen von [unsloth](https://huggingface.co/unsloth), [ggml-org](https://huggingface.co/ggml-org) und [bartowski](https://huggingface.co/bartowski); es gilt jeweils die Lizenz des Originalmodells:
+The models are not part of the app – they are only downloaded from Hugging Face on request. The catalog ([src/main/catalog.ts](src/main/catalog.ts)) is generated directly from Hugging Face with `node scripts/update-catalog.mjs`: 21 models from 0.8B to 480B parameters, each in several variants (2-bit up to the unquantized 16-bit original). The GGUF files come from [unsloth](https://huggingface.co/unsloth), [ggml-org](https://huggingface.co/ggml-org) and [bartowski](https://huggingface.co/bartowski); the license of the original model applies in each case:
 
-| Modelle | Lizenz | Kommerziell |
+| Models | License | Commercial use |
 | --- | --- | --- |
-| Qwen3.5 (0.8B–397B), Qwen3.6, Qwen3.8 27B, Qwen3 Coder (30B, Next, 480B), Qwen2.5 Coder 1.5B/7B | Apache 2.0 | ja |
-| Gemma 4 (E2B, E4B, 12B, 26B A4B, 31B) | Apache 2.0 | ja |
-| gpt-oss 20B / 120B (OpenAI) | Apache 2.0 | ja |
-| **Qwen2.5 Coder 3B** | [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/blob/main/LICENSE) | **nein** – nur Forschung/Ausprobieren |
-| **Qwen3.8 Flash-Next 177B** | [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE) | privat/intern ja; **wer kommerziell ein KI-Coding-Produkt (wie diese IDE) anbietet, braucht eine eigene Lizenz** |
+| Qwen3.5 (0.8B–397B), Qwen3.6, Qwen3.8 27B, Qwen3 Coder (30B, Next, 480B), Qwen2.5 Coder 1.5B/7B | Apache 2.0 | yes |
+| Gemma 4 (E2B, E4B, 12B, 26B A4B, 31B) | Apache 2.0 | yes |
+| gpt-oss 20B / 120B (OpenAI) | Apache 2.0 | yes |
+| **Qwen2.5 Coder 3B** | [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/blob/main/LICENSE) | **no** – research/trying out only |
+| **Qwen3.8 Flash-Next 177B** | [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE) | private/internal yes; **offering a commercial AI coding product (like this IDE) requires a separate license** |
 
-Die Lizenz steht auch auf jeder Modell-Karte in der App.
+The license is also shown on every model card in the app.

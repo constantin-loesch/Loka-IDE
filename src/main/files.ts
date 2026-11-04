@@ -1,15 +1,16 @@
-// Öffnen und Speichern von Dateien beliebigen Typs.
+// Opening and saving files of any type.
 import { net, protocol } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
 import { mkdir, open, readFile, rename as fsRename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { MediaKind, OpenedFile, TextEncoding } from '../shared/types'
+import { t } from './i18n'
 
-/** Ordner, die im Explorer und für das Modell ausgeblendet werden. */
+/** Folders hidden in the explorer and from the model. */
 export const HIDDEN = new Set(['.git', 'node_modules', '.DS_Store', 'out', 'dist', '.next', '__pycache__'])
 
-/** Eigenes Protokoll, über das die Oberfläche Bilder, PDFs, Audio und Video lädt. */
+/** Own protocol through which the UI loads images, PDFs, audio and video. */
 export const FILE_SCHEME = 'lokal-file'
 
 const MEDIA: Record<string, MediaKind> = {
@@ -21,21 +22,21 @@ const MEDIA: Record<string, MediaKind> = {
   mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video', mkv: 'video'
 }
 
-/** Größere Textdateien würden den Editor lahmlegen. */
+/** Larger text files would paralyze the editor. */
 const MAX_TEXT_BYTES = 50 * 1024 * 1024
 
-/** Muss vor app.whenReady() laufen. */
+/** Must run before app.whenReady(). */
 export function registerScheme(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: FILE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
   ])
 }
 
-/** Muss nach app.whenReady() laufen. */
+/** Must run after app.whenReady(). */
 export function handleScheme(): void {
   protocol.handle(FILE_SCHEME, (req) => {
     const path = decodeURIComponent(new URL(req.url).pathname)
-    // Range-Header weiterreichen, damit Audio/Video spulen kann
+    // Pass the Range header on so audio/video can seek
     return net.fetch(pathToFileURL(path).toString(), { headers: req.headers })
   })
 }
@@ -44,7 +45,7 @@ function mediaUrl(path: string): string {
   return `${FILE_SCHEME}://file${path.split('/').map(encodeURIComponent).join('/')}`
 }
 
-/** Erkennt Binärdateien an Null-Bytes am Anfang (wie git). */
+/** Detects binary files by null bytes at the start (like git). */
 function looksBinary(buf: Buffer): boolean {
   const n = Math.min(buf.length, 8000)
   for (let i = 0; i < n; i++) if (buf[i] === 0) return true
@@ -61,7 +62,7 @@ function decodeText(buf: Buffer): { content: string; encoding: TextEncoding } {
   try {
     return { content: new TextDecoder('utf-8', { fatal: true }).decode(buf), encoding: 'utf8' }
   } catch {
-    // Kein gültiges UTF-8 – meist alte Windows-/Latin-1-Dateien
+    // Not valid UTF-8 – usually old Windows/Latin-1 files
     return { content: buf.toString('latin1'), encoding: 'latin1' }
   }
 }
@@ -73,7 +74,7 @@ export async function openFile(path: string, forceText = false): Promise<OpenedF
   if (size > MAX_TEXT_BYTES && !forceText) return { kind: 'binary', reason: 'too-large', size }
 
   if (!forceText) {
-    // Nur den Anfang lesen, um Binärdateien schnell zu erkennen
+    // Only read the beginning to detect binary files quickly
     const fh = await open(path, 'r')
     try {
       const head = Buffer.alloc(Math.min(size, 8000))
@@ -105,24 +106,26 @@ export async function saveFile(path: string, content: string, encoding: TextEnco
   await writeFile(path, buf)
 }
 
-// ---------- Anlegen, umbenennen, löschen ----------
+// ---------- Create, rename, delete ----------
 
-/** Legt eine leere Datei an; fehlende Zwischenordner („src/neu/datei.ts“) werden mit angelegt. */
+/** Creates an empty file; missing intermediate folders (“src/new/file.ts”) are created too. */
 export async function createFile(path: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
-  // 'wx' = Fehler, wenn es die Datei schon gibt
-  await writeFile(path, '', { flag: 'wx' })
+  // 'wx' = error if the file already exists
+  await writeFile(path, '', { flag: 'wx' }).catch((err: NodeJS.ErrnoException) => {
+    throw err.code === 'EEXIST' ? new Error(t('“{name}” already exists.', { name: basename(path) })) : err
+  })
 }
 
 export async function createDir(path: string): Promise<void> {
-  if (await exists(path)) throw new Error(`„${basename(path)}“ gibt es schon.`)
+  if (await exists(path)) throw new Error(t('“{name}” already exists.', { name: basename(path) }))
   await mkdir(path, { recursive: true })
 }
 
 export async function rename(from: string, to: string): Promise<void> {
   if (from === to) return
-  // Nur Groß-/Kleinschreibung geändert: auf macOS ist das dieselbe Datei
-  if (from.toLowerCase() !== to.toLowerCase() && (await exists(to))) throw new Error(`„${basename(to)}“ gibt es schon.`)
+  // Only the case changed: on macOS that's the same file
+  if (from.toLowerCase() !== to.toLowerCase() && (await exists(to))) throw new Error(t('“{name}” already exists.', { name: basename(to) }))
   await mkdir(dirname(to), { recursive: true })
   await fsRename(from, to)
 }
@@ -134,13 +137,13 @@ async function exists(path: string): Promise<boolean> {
   )
 }
 
-// ---------- Ordner beobachten ----------
+// ---------- Watching folders ----------
 
 const watchers = new Map<string, FSWatcher>()
 
 /**
- * Beobachtet die aufgeklappten Ordner des Explorers (nicht rekursiv, also auch bei großen
- * Projekten billig). Änderungen – z. B. aus dem Terminal – meldet `onChange` mit dem Ordner.
+ * Watches the expanded folders of the explorer (not recursive, so cheap even for large
+ * projects). Changes – e.g. from the terminal – are reported via `onChange` with the folder.
  */
 export function watchDirs(dirs: string[], onChange: (dir: string) => void): void {
   const wanted = new Set(dirs)
@@ -155,7 +158,7 @@ export function watchDirs(dirs: string[], onChange: (dir: string) => void): void
     try {
       let t: NodeJS.Timeout | null = null
       const w = watch(dir, () => {
-        // Viele Ereignisse kurz hintereinander zusammenfassen
+        // Combine many events in quick succession
         if (t) clearTimeout(t)
         t = setTimeout(() => onChange(dir), 150)
       })
@@ -165,7 +168,7 @@ export function watchDirs(dirs: string[], onChange: (dir: string) => void): void
       })
       watchers.set(dir, w)
     } catch {
-      /* Ordner gibt es nicht mehr */
+      /* folder no longer exists */
     }
   }
 }

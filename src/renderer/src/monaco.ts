@@ -1,4 +1,4 @@
-// Monaco lokal bündeln (kein CDN), damit die IDE komplett offline läuft.
+// Bundle Monaco locally (no CDN) so the IDE runs completely offline.
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
@@ -19,5 +19,5 @@ self.MonacoEnvironment = {
 
 loader.config({ monaco })
 
-// Kommentare und überzählige Kommas erlauben – devcontainer.json, tsconfig.json & Co. sind JSONC
+// Allow comments and trailing commas – devcontainer.json, tsconfig.json & co. are JSONC
 monaco.json.jsonDefaults.setDiagnosticsOptions({ validate: true, allowComments: true, trailingCommas: 'ignore' })

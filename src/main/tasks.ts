@@ -1,4 +1,5 @@
-// Erkennt Build-Aufgaben im Projekt (npm-Skripte, Make, Cargo, Go, Maven, Gradle, CMake …).
+// Detects build tasks in the project (npm scripts, Make, Cargo, Go, Maven, Gradle, CMake …).
+// Labels are English and translated in the UI.
 import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -15,14 +16,14 @@ export async function detect(root: string): Promise<BuildTask[]> {
   // JavaScript / TypeScript
   if (has('package.json')) {
     const pm = has('pnpm-lock.yaml') ? 'pnpm' : has('yarn.lock') ? 'yarn' : has('bun.lockb') || has('bun.lock') ? 'bun' : 'npm'
-    add(pm, 'Abhängigkeiten installieren', `${pm} install`)
+    add(pm, 'Install dependencies', `${pm} install`)
     try {
       const scripts = (JSON.parse(await read('package.json')) as { scripts?: Record<string, string> }).scripts ?? {}
       for (const name of Object.keys(scripts)) {
         add(pm, name, pm === 'npm' || pm === 'bun' ? `${pm} run ${name}` : `${pm} ${name}`)
       }
     } catch {
-      /* kaputte package.json */
+      /* broken package.json */
     }
   }
 
@@ -69,14 +70,14 @@ export async function detect(root: string): Promise<BuildTask[]> {
 
   // C / C++
   if (has('CMakeLists.txt')) {
-    add('cmake', 'konfigurieren', 'cmake -S . -B build')
+    add('cmake', 'configure', 'cmake -S . -B build')
     add('cmake', 'build', 'cmake --build build')
     add('cmake', 'test', 'ctest --test-dir build')
   }
 
   // Python
-  if (has('requirements.txt')) add('python', 'Abhängigkeiten installieren', 'python3 -m pip install -r requirements.txt')
-  if (has('pyproject.toml')) add('python', 'Paket installieren', 'python3 -m pip install -e .')
+  if (has('requirements.txt')) add('python', 'Install dependencies', 'python3 -m pip install -r requirements.txt')
+  if (has('pyproject.toml')) add('python', 'Install package', 'python3 -m pip install -e .')
   if (has('pyproject.toml') || has('pytest.ini') || has('tests')) add('python', 'Tests (pytest)', 'python3 -m pytest')
 
   // .NET
@@ -87,12 +88,12 @@ export async function detect(root: string): Promise<BuildTask[]> {
     add('dotnet', 'run', 'dotnet run')
   }
 
-  // Sonstiges
+  // Other
   if (has('Gemfile')) add('ruby', 'bundle install', 'bundle install')
   if (has('composer.json')) add('php', 'composer install', 'composer install')
   if (has('Dockerfile')) {
     const name = root.split('/').pop()!.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-')
-    add('docker', 'Image bauen', `docker build -t ${name} .`)
+    add('docker', 'Build image', `docker build -t ${name} .`)
   }
   if (has('docker-compose.yml') || has('compose.yaml') || has('compose.yml') || has('docker-compose.yaml')) {
     add('docker', 'compose up', 'docker compose up')
